@@ -65,3 +65,18 @@ def test_resolve_image_tracklet_unchanged(tmp_path: Path) -> None:
     paths = [tmp_path / f"f{index}.jpg" for index in range(3)]
     sampled = resolve_frame_paths(paths, num_frames=8)
     assert sampled == sample_frame_paths(paths, num_frames=8)
+
+
+def test_imagenet_preprocess_btchw_shape(tmp_path: Path) -> None:
+    pytest.importorskip("torchvision")
+    from PIL import Image
+
+    from shawaf_vlm.models.runtime import imagenet_preprocess_btchw
+
+    paths = []
+    for index in range(8):
+        path = tmp_path / f"frame_{index:03d}.jpg"
+        Image.new("RGB", (48, 80), color=(index * 8, 40, 90)).save(path)
+        paths.append(path)
+    tensor = imagenet_preprocess_btchw([paths], image_size=224)
+    assert tuple(tensor.shape) == (1, 8, 3, 224, 224)

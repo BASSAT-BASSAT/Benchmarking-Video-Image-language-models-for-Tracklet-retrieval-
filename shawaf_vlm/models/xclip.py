@@ -6,8 +6,8 @@ import numpy as np
 from tqdm import tqdm
 
 from shawaf_vlm.models.runtime import (
+    imagenet_preprocess_btchw,
     l2_normalize_torch,
-    load_pil_frames,
     resolve_device,
     to_numpy,
     unwrap_features,
@@ -24,7 +24,13 @@ class XCLIPEncoder:
         from transformers import AutoModel, AutoProcessor
 
         self.device = resolve_device(device)
-        self.processor = AutoProcessor.from_pretrained(self.checkpoint)
+        try:
+            self.processor = AutoProcessor.from_pretrained(
+                self.checkpoint,
+                use_fast=False,
+            )
+        except TypeError:
+            self.processor = AutoProcessor.from_pretrained(self.checkpoint)
         self.model = AutoModel.from_pretrained(self.checkpoint)
         self.model.eval()
         self.model.to(self.device)
@@ -41,13 +47,12 @@ class XCLIPEncoder:
             unit="batch",
         ):
             batch = videos[start : start + batch_size]
-            pil_videos = [load_pil_frames(paths) for paths in batch]
-            inputs = self.processor(
-                videos=pil_videos,
-                return_tensors="pt",
-                padding=True,
+            # New transformers XCLIPProcessor maps videos through a processor
+            # that no longer exposes pixel_values. Match VideoMAE ImageNet
+            # stats ourselves: (B, T, C, H, W).
+            pixel_values = imagenet_preprocess_btchw(batch, image_size=224).to(
+                self.device
             )
-            pixel_values = inputs["pixel_values"].to(self.device)
             features = self._forward_videos(pixel_values)
             chunks.append(to_numpy(features))
         return np.concatenate(chunks, axis=0)

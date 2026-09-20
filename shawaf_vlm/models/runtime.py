@@ -8,6 +8,8 @@ from PIL import Image
 
 CLIP_MEAN = (0.48145466, 0.4578275, 0.40821073)
 CLIP_STD = (0.26862954, 0.26130258, 0.27577711)
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
 def resolve_device(device: str) -> str:
@@ -94,4 +96,34 @@ def clip_preprocess_bcthw(
                 tensor = TF.normalize(tensor, CLIP_MEAN, CLIP_STD)
             frames.append(tensor)
         videos.append(torch.stack(frames, dim=1))
+    return torch.stack(videos, dim=0)
+
+
+def imagenet_preprocess_btchw(
+    paths_batch: list[list[Path]],
+    image_size: int = 224,
+) -> "object":
+    """VideoMAE / X-CLIP resize/center-crop/normalize to (B, T, C, H, W)."""
+
+    import torch
+    from torchvision.transforms import InterpolationMode
+    from torchvision.transforms import functional as TF
+
+    videos = []
+    for paths in paths_batch:
+        frames = []
+        for path in paths:
+            with Image.open(path) as image:
+                rgb = image.convert("RGB")
+                resized = TF.resize(
+                    rgb,
+                    image_size,
+                    interpolation=InterpolationMode.BILINEAR,
+                    antialias=True,
+                )
+                cropped = TF.center_crop(resized, [image_size, image_size])
+                tensor = TF.to_tensor(cropped)
+                tensor = TF.normalize(tensor, IMAGENET_MEAN, IMAGENET_STD)
+            frames.append(tensor)
+        videos.append(torch.stack(frames, dim=0))
     return torch.stack(videos, dim=0)
