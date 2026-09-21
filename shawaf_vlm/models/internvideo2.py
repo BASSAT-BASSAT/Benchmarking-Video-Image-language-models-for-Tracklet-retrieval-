@@ -26,6 +26,98 @@ _ONE_B_HELP = (
 )
 
 
+def install_flash_attn_stub() -> None:
+    """Satisfy InternVideo2 remote-code imports without compiling flash-attn.
+
+    CLIP-S already sets use_flash_attn/use_fused_mlp/use_fused_rmsnorm to False
+    and uses naive attention. transformers still scans `from flash_attn...`
+    and refuses to load the Hub files unless the package imports.
+    """
+
+    import sys
+    import types
+
+    try:
+        import flash_attn  # noqa: F401
+
+        return
+    except ImportError:
+        pass
+
+    from torch import nn
+
+    flash_attn = types.ModuleType("flash_attn")
+    modules = types.ModuleType("flash_attn.modules")
+    mlp = types.ModuleType("flash_attn.modules.mlp")
+    ops = types.ModuleType("flash_attn.ops")
+    rms = types.ModuleType("flash_attn.ops.rms_norm")
+    interface = types.ModuleType("flash_attn.flash_attn_interface")
+    padding = types.ModuleType("flash_attn.bert_padding")
+
+    class FusedMLP(nn.Module):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__()
+            raise RuntimeError(
+                "flash_attn FusedMLP stub used; set use_fused_mlp=False"
+            )
+
+    class DropoutAddRMSNorm(nn.Module):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__()
+            raise RuntimeError(
+                "flash_attn DropoutAddRMSNorm stub used; set use_fused_rmsnorm=False"
+            )
+
+    def _missing(*args, **kwargs):
+        raise RuntimeError(
+            "flash_attn is stubbed; InternVideo2 should use naive attention"
+        )
+
+    mlp.FusedMLP = FusedMLP
+    rms.DropoutAddRMSNorm = DropoutAddRMSNorm
+    interface.flash_attn_varlen_qkvpacked_func = _missing
+    padding.unpad_input = _missing
+    padding.pad_input = _missing
+    flash_attn.modules = modules
+    flash_attn.ops = ops
+    modules.mlp = mlp
+    ops.rms_norm = rms
+
+    sys.modules.update(
+        {
+            "flash_attn": flash_attn,
+            "flash_attn.modules": modules,
+            "flash_attn.modules.mlp": mlp,
+            "flash_attn.ops": ops,
+            "flash_attn.ops.rms_norm": rms,
+            "flash_attn.flash_attn_interface": interface,
+            "flash_attn.bert_padding": padding,
+        }
+    )
+
+
+def _force_naive_attention(config) -> None:
+    model_cfg = getattr(config, "model", None)
+    if model_cfg is None:
+        return
+    if isinstance(model_cfg, dict):
+        vision = model_cfg.get("vision_encoder")
+    else:
+        vision = getattr(model_cfg, "vision_encoder", None)
+    if vision is None:
+        return
+    for key in ("use_flash_attn", "use_fused_mlp", "use_fused_rmsnorm"):
+        try:
+            vision[key] = False
+        except Exception:
+            pass
+        if hasattr(vision, key):
+            try:
+                setattr(vision, key, False)
+            except Exception:
+                pass
+
+
 class InternVideo2Encoder:
     """Frozen InternVideo2 CLIP encoder via Hugging Face AutoModel."""
 
@@ -35,19 +127,23 @@ class InternVideo2Encoder:
         checkpoint: str = CLIP_S,
         name: str = "internvideo2",
     ) -> None:
-        from transformers import AutoModel
+        from transformers import AutoConfig, AutoModel
         import torch
 
         self.name = name
         self.checkpoint = checkpoint
         self.device = resolve_device(device)
         dtype = torch.float16 if self.device.startswith("cuda") else torch.float32
+        install_flash_attn_stub()
         try:
+            config = AutoConfig.from_pretrained(checkpoint, trust_remote_code=True)
+            _force_naive_attention(config)
             self.model = load_pretrained(
                 AutoModel.from_pretrained,
                 checkpoint,
                 dtype,
                 trust_remote_code=True,
+                config=config,
             )
         except Exception as exc:
             if checkpoint == CLIP_1B:

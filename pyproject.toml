@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shawaf-vlm"
-version = "0.1.6"
+version = "0.1.7"
 description = "Stage 1 text-to-tracklet video-language retrieval for SHAWAF"
 requires-python = ">=3.10"
 dependencies = [
@@ -39,6 +39,7 @@ internvideo2 = [
     "pillow>=10.0",
     "einops>=0.7",
     "timm>=1.0",
+    "open-clip-torch>=2.24",
 ]
 all = [
     "torch>=2.1",
@@ -49,6 +50,7 @@ all = [
     "einops>=0.7",
     "peft>=0.10",
     "timm>=1.0",
+    "open-clip-torch>=2.24",
     "huggingface_hub>=0.23",
     "opencv-python-headless>=4.8",
 ]

@@ -225,3 +225,49 @@ def test_disable_incompatible_torchao_patches_peft_probe() -> None:
                 sys.modules.pop(name, None)
             else:
                 sys.modules[name] = module
+
+
+def test_flash_attn_stub_satisfies_internvideo2_imports() -> None:
+    from shawaf_vlm.models.internvideo2 import install_flash_attn_stub
+
+    install_flash_attn_stub()
+    install_flash_attn_stub()
+    import flash_attn
+    from flash_attn.modules.mlp import FusedMLP
+    from flash_attn.ops.rms_norm import DropoutAddRMSNorm
+    from flash_attn.flash_attn_interface import flash_attn_varlen_qkvpacked_func
+    from flash_attn.bert_padding import pad_input, unpad_input
+
+    assert flash_attn is not None
+    assert FusedMLP is not None
+    assert DropoutAddRMSNorm is not None
+    assert callable(flash_attn_varlen_qkvpacked_func)
+    assert callable(unpad_input)
+    assert callable(pad_input)
+
+
+def test_force_naive_attention_clears_flags() -> None:
+    from types import SimpleNamespace
+
+    from shawaf_vlm.models.internvideo2 import _force_naive_attention
+
+    vision = {
+        "use_flash_attn": True,
+        "use_fused_mlp": True,
+        "use_fused_rmsnorm": True,
+    }
+    _force_naive_attention(SimpleNamespace(model={"vision_encoder": vision}))
+    assert vision["use_flash_attn"] is False
+    assert vision["use_fused_mlp"] is False
+    assert vision["use_fused_rmsnorm"] is False
+
+
+def test_internvideo2_loader_installs_flash_stub() -> None:
+    import inspect
+
+    from shawaf_vlm.models.internvideo2 import InternVideo2Encoder
+
+    source = inspect.getsource(InternVideo2Encoder.__init__)
+    assert "install_flash_attn_stub()" in source
+    assert "_force_naive_attention(config)" in source
+    assert "trust_remote_code=True" in source
