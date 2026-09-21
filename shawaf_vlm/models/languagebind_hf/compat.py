@@ -31,11 +31,6 @@ except ImportError:  # pragma: no cover - depends on transformers version
         vision_model_output: Optional[object] = None
 
 try:
-    from transformers.models.clip.modeling_clip import CLIPTextEmbeddings
-except ImportError:  # pragma: no cover
-    CLIPTextEmbeddings = None  # type: ignore[misc, assignment]
-
-try:
     from transformers.models.clip.modeling_clip import CLIPVisionModelWithProjection
 except ImportError:  # pragma: no cover
     class CLIPVisionModelWithProjection:  # type: ignore[no-redef]
@@ -46,6 +41,49 @@ try:
 except ImportError:  # pragma: no cover
     class CLIPTextModelWithProjection:  # type: ignore[no-redef]
         pass
+
+
+class CLIPTextEmbeddings(nn.Module):
+    """CLIP text embeddings from transformers 4.30; avoids v5 Buffer/position_ids issues."""
+
+    def __init__(self, config) -> None:
+        super().__init__()
+        embed_dim = config.hidden_size
+        self.token_embedding = nn.Embedding(config.vocab_size, embed_dim)
+        self.position_embedding = nn.Embedding(config.max_position_embeddings, embed_dim)
+        self.register_buffer(
+            "position_ids",
+            torch.arange(config.max_position_embeddings).expand((1, -1)),
+            persistent=False,
+        )
+
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.Tensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        seq_length = (
+            input_ids.shape[-1] if input_ids is not None else inputs_embeds.shape[-2]
+        )
+        max_pos = self.position_embedding.num_embeddings
+        if seq_length > max_pos:
+            if input_ids is not None:
+                input_ids = input_ids[:, :max_pos]
+            if inputs_embeds is not None:
+                inputs_embeds = inputs_embeds[:, :max_pos, :]
+            seq_length = max_pos
+        if position_ids is None:
+            position_ids = self.position_ids[:, :seq_length]
+        else:
+            position_ids = position_ids[:, :seq_length].clamp(0, max_pos - 1)
+        if inputs_embeds is None:
+            if input_ids is None:
+                raise ValueError("You have to specify input_ids or inputs_embeds")
+            vocab = self.token_embedding.num_embeddings
+            input_ids = input_ids.clamp(0, vocab - 1)
+            inputs_embeds = self.token_embedding(input_ids)
+        return inputs_embeds + self.position_embedding(position_ids)
 
 
 def _expand_mask(
@@ -176,3 +214,36 @@ def disable_incompatible_torchao() -> None:
     for name, module in list(sys.modules.items()):
         if "peft" in name and hasattr(module, "is_torchao_available"):
             setattr(module, "is_torchao_available", _unavailable)
+
+
+def remap_peft_state_dict(raw: dict, model) -> dict:
+    """Map LanguageBind's old PEFT keys onto current peft `base_layer` / `default` names."""
+
+    target = model.state_dict()
+    keys = set(target)
+    out: dict = {}
+
+    def take(src: str, dest: str) -> bool:
+        if dest not in keys or dest in out or src not in raw:
+            return False
+        if tuple(raw[src].shape) != tuple(target[dest].shape):
+            return False
+        out[dest] = raw[src]
+        return True
+
+    for src in raw:
+        if take(src, src):
+            continue
+        if src.endswith(".weight") and take(src, f"{src[:-7]}.base_layer.weight"):
+            continue
+        if src.endswith(".bias") and take(src, f"{src[:-5]}.base_layer.bias"):
+            continue
+        if ".lora_A.weight" in src and take(
+            src, src.replace(".lora_A.weight", ".lora_A.default.weight")
+        ):
+            continue
+        if ".lora_B.weight" in src and take(
+            src, src.replace(".lora_B.weight", ".lora_B.default.weight")
+        ):
+            continue
+    return out

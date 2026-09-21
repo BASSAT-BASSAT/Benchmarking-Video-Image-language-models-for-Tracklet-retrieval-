@@ -603,6 +603,14 @@ class CLIPTextTransformer(nn.Module):
         if input_ids is None:
             raise ValueError("You have to specify input_ids")
 
+        max_pos = self.embeddings.position_embedding.num_embeddings
+        if input_ids.shape[-1] > max_pos:
+            input_ids = input_ids[..., :max_pos]
+            if attention_mask is not None:
+                attention_mask = attention_mask[..., :max_pos]
+        # Always rebuild positions; tokenizer position_ids can OOB on CUDA.
+        position_ids = None
+
         input_shape = input_ids.size()
         input_ids = input_ids.view(-1, input_shape[-1])
 

@@ -8,7 +8,6 @@ from tqdm import tqdm
 from shawaf_vlm.models.runtime import (
     clip_preprocess_bcthw,
     l2_normalize_torch,
-    load_pretrained,
     place_model,
     resolve_device,
     to_numpy,
@@ -16,24 +15,81 @@ from shawaf_vlm.models.runtime import (
 )
 
 
+def _read_checkpoint_tensors(checkpoint: str) -> tuple[dict, str]:
+    from transformers.utils import cached_file
+
+    try:
+        path = cached_file(checkpoint, "model.safetensors")
+    except OSError:
+        path = None
+    if path:
+        from safetensors.torch import load_file
+
+        return load_file(path), "model.safetensors"
+
+    path = cached_file(checkpoint, "pytorch_model.bin")
+    import torch
+
+    try:
+        raw = torch.load(path, map_location="cpu", weights_only=True)
+    except TypeError:
+        raw = torch.load(path, map_location="cpu")
+    if isinstance(raw, dict) and "state_dict" in raw:
+        raw = raw["state_dict"]
+    return raw, "pytorch_model.bin"
+
+
+def _load_languagebind_weights(model, checkpoint: str) -> None:
+    from shawaf_vlm.models.languagebind_hf.compat import remap_peft_state_dict
+
+    raw, source = _read_checkpoint_tensors(checkpoint)
+    remapped = remap_peft_state_dict(raw, model)
+    missing, _unexpected = model.load_state_dict(remapped, strict=False)
+    missing = [key for key in missing if "position_ids" not in key]
+    print(
+        f"LanguageBind loaded {len(remapped)}/{len(model.state_dict())} "
+        f"tensors from {source}",
+        flush=True,
+    )
+    if missing:
+        preview = ", ".join(missing[:8])
+        print(
+            f"LanguageBind still missing {len(missing)} tensors: {preview}",
+            flush=True,
+        )
+
+
 class LanguageBindEncoder:
     """Frozen LanguageBind video encoder (LanguageBind/LanguageBind_Video)."""
 
     name = "languagebind"
     checkpoint = "LanguageBind/LanguageBind_Video"
+    context_length = 77
 
     def __init__(self, device: str = "cuda") -> None:
-        from transformers import AutoTokenizer
+        from transformers import CLIPTokenizer
         import torch
 
-        from shawaf_vlm.models.languagebind_hf import LanguageBindVideo
+        from shawaf_vlm.models.languagebind_hf.compat import disable_incompatible_torchao
+
+        disable_incompatible_torchao()
+        from shawaf_vlm.models.languagebind_hf.configuration_video import (
+            LanguageBindVideoConfig,
+        )
+        from shawaf_vlm.models.languagebind_hf.modeling_video import LanguageBindVideo
 
         self.device = resolve_device(device)
         dtype = torch.float16 if self.device.startswith("cuda") else torch.float32
-        # Hub checkpoint has no auto_map, so AutoConfig cannot resolve
-        # model_type LanguageBindVideo. Load the official class instead.
-        self.model = load_pretrained(LanguageBindVideo.from_pretrained, self.checkpoint, dtype)
-        self.tokenizer = AutoTokenizer.from_pretrained(self.checkpoint)
+        config = LanguageBindVideoConfig.from_pretrained(self.checkpoint)
+        # Build, wrap LoRA, then remap old PEFT key names onto current peft.
+        model = LanguageBindVideo(config)
+        _load_languagebind_weights(model, self.checkpoint)
+        if dtype != torch.float32:
+            model = model.to(dtype=dtype)
+        self.model = model
+        self.tokenizer = CLIPTokenizer.from_pretrained(self.checkpoint)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
         place_model(self.model, self.device)
         vision = getattr(self.model.config, "vision_config", None)
         self.image_size = int(getattr(vision, "image_size", 224) or 224)
@@ -72,17 +128,21 @@ class LanguageBindEncoder:
             batch = texts[start : start + batch_size]
             encoded = self.tokenizer(
                 batch,
-                padding=True,
+                padding="max_length",
                 truncation=True,
-                max_length=77,
+                max_length=self.context_length,
                 return_tensors="pt",
             )
-            encoded = {
-                key: value.to(self.device)
-                for key, value in encoded.items()
-                if hasattr(value, "to")
-            }
-            features = self._forward_texts(encoded)
+            input_ids = encoded["input_ids"][:, : self.context_length]
+            attention_mask = encoded["attention_mask"][:, : self.context_length]
+            vocab = self.model.text_model.embeddings.token_embedding.num_embeddings
+            input_ids = input_ids.clamp(0, vocab - 1)
+            features = self._forward_texts(
+                {
+                    "input_ids": input_ids.to(self.device),
+                    "attention_mask": attention_mask.to(self.device),
+                }
+            )
             chunks.append(to_numpy(features))
         return np.concatenate(chunks, axis=0)
 

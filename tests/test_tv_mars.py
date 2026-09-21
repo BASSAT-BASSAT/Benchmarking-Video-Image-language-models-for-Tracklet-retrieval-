@@ -126,8 +126,54 @@ def test_languagebind_skips_automodel() -> None:
     from shawaf_vlm.models.languagebind import LanguageBindEncoder
 
     source = inspect.getsource(LanguageBindEncoder.__init__)
-    assert "LanguageBindVideo.from_pretrained" in source
+    assert "LanguageBindVideo.from_pretrained" not in source
     assert "AutoModel.from_pretrained" not in source
+    assert "CLIPTokenizer.from_pretrained" in source
+    assert "_load_languagebind_weights" in source
+
+
+def test_remap_peft_state_dict_maps_base_layer() -> None:
+    import torch
+    from torch import nn
+
+    from shawaf_vlm.models.languagebind_hf.compat import remap_peft_state_dict
+
+    class _Wrapped(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.base_layer = nn.Linear(4, 4)
+
+    class _Fake(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.q_proj = _Wrapped()
+
+    model = _Fake()
+    raw = {
+        "q_proj.weight": torch.ones(4, 4),
+        "q_proj.bias": torch.ones(4),
+    }
+    mapped = remap_peft_state_dict(raw, model)
+    assert "q_proj.base_layer.weight" in mapped
+    assert "q_proj.base_layer.bias" in mapped
+    torch.testing.assert_close(mapped["q_proj.base_layer.weight"], raw["q_proj.weight"])
+
+
+def test_clip_text_embeddings_clamps_oob_ids() -> None:
+    import torch
+    from types import SimpleNamespace
+
+    from shawaf_vlm.models.languagebind_hf.compat import CLIPTextEmbeddings
+
+    config = SimpleNamespace(
+        hidden_size=8,
+        vocab_size=10,
+        max_position_embeddings=4,
+    )
+    embeddings = CLIPTextEmbeddings(config)
+    ids = torch.tensor([[0, 9, 99, -1, 3]])
+    out = embeddings(input_ids=ids)
+    assert out.shape == (1, 4, 8)
 
 
 def test_languagebind_video_config_type() -> None:
