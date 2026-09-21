@@ -8,6 +8,7 @@ import pytest
 from shawaf_vlm.data.tvpreid import (
     TVPReidAccessError,
     load_tvpreid_from_root,
+    video_rels_from_jsonl,
 )
 from shawaf_vlm.sampling import resolve_frame_paths, sample_frame_paths
 
@@ -39,6 +40,9 @@ def test_load_tvpreid_explodes_captions(tmp_path: Path) -> None:
     assert len(splits.query) == 2
     assert splits.query[0].person_id == splits.gallery[0].person_id
     assert splits.gallery[0].crop_paths[0] == video
+    assert video_rels_from_jsonl(metadata / "prid-test.jsonl") == [
+        "TVPReid-PRID/videos/person0001.mp4"
+    ]
 
 
 def test_load_tvpreid_skips_missing_videos(tmp_path: Path) -> None:

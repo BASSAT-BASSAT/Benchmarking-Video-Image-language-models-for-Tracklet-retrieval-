@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+from tqdm.auto import tqdm
 
 from shawaf_vlm.data.tv_mars import CaptionQuery, GalleryTracklet, TVMarsSplits
 
-HF_REPO_ID = "bassat6969/TVPReid"
-HF_DATASET_URL = "https://huggingface.co/datasets/bassat6969/TVPReid"
+HF_REPO_ID = "bassatbassat/TVPReid"
+HF_DATASET_URL = "https://huggingface.co/datasets/bassatbassat/TVPReid"
 
 SUBSET_FOLDERS = {
     "prid": "TVPReid-PRID",
@@ -26,9 +29,9 @@ def missing_tvpreid_message(detail: str) -> str:
     return (
         f"{detail}\n"
         f"TVPReid unofficial mirror: {HF_DATASET_URL}\n"
-        "The Hub repo is public; enable Internet on Kaggle so snapshot_download "
-        "can pull it. Cite Zhang et al. ACM MM 2024 and the PRID / iLIDS / Duke "
-        "source papers."
+        "The Hub repo is public; enable Internet on Kaggle so the downloader "
+        "can pull the test mp4s. Cite Zhang et al. ACM MM 2024 and the PRID / "
+        "iLIDS / Duke source papers."
     )
 
 
@@ -55,6 +58,7 @@ def load_tvpreid(
         snapshot = download_tvpreid(
             repo_id=repo_id,
             configs=(config,),
+            split=split,
             token=token,
         )
     return load_tvpreid_from_root(snapshot, config=config, split=split)
@@ -78,19 +82,28 @@ def discover_local_tvpreid() -> Path | None:
         for match in kaggle_input.rglob("metadata"):
             if _looks_like_tvpreid_root(match.parent):
                 return match.parent
+
+    for candidate in (
+        Path("/kaggle/working/TVPReid"),
+        Path.home() / ".cache" / "shawaf_vlm" / "TVPReid",
+    ):
+        if _looks_like_tvpreid_root(candidate):
+            return candidate
     return None
 
 
 def download_tvpreid(
     repo_id: str = HF_REPO_ID,
     configs: tuple[str, ...] = ("prid",),
+    split: str = "test",
     token: str | None = None,
     local_dir: Path | str | None = None,
+    max_workers: int = 8,
 ) -> Path:
-    """Download selected TVPReid subsets from the Hub (skips unused folders)."""
+    """Download only the requested split's videos, with a tqdm file bar."""
 
     try:
-        from huggingface_hub import snapshot_download
+        import huggingface_hub  # noqa: F401
     except ImportError as exc:
         raise TVPReidAccessError(
             missing_tvpreid_message(
@@ -99,29 +112,102 @@ def download_tvpreid(
             )
         ) from exc
 
-    normalized = tuple(_normalize_config(item) for item in configs)
-    patterns = ["README.md", "CITATION.cff"]
-    for config in normalized:
-        folder = SUBSET_FOLDERS[config]
-        patterns.append(f"{folder}/**")
-        patterns.append(f"metadata/{config}-*.jsonl")
+    try:
+        from huggingface_hub.utils import disable_progress_bars
 
+        disable_progress_bars()
+    except Exception:
+        pass
+    normalized = tuple(_normalize_config(item) for item in configs)
+    split = _normalize_split(split)
     auth_token = token or os.environ.get("HF_TOKEN") or os.environ.get(
         "HUGGING_FACE_HUB_TOKEN"
     )
+    dest = _download_root(local_dir)
+
+    jsonl_names = [f"metadata/{config}-{split}.jsonl" for config in normalized]
+    print(f"Hub repo : {repo_id}", flush=True)
+    print(f"Split    : {split} only (skips train/val mp4s)", flush=True)
+    print(f"Subsets  : {', '.join(normalized)}", flush=True)
+
     try:
-        snapshot = snapshot_download(
-            repo_id=repo_id,
-            repo_type="dataset",
-            token=auth_token,
-            allow_patterns=patterns,
-            local_dir=str(local_dir) if local_dir is not None else None,
-        )
+        for name in tqdm(jsonl_names, desc="Metadata", unit="file"):
+            _hub_file(
+                repo_id=repo_id,
+                filename=name,
+                token=auth_token,
+                dest=dest,
+            )
+        video_rels = []
+        for name in jsonl_names:
+            jsonl_path = dest / name
+            video_rels.extend(video_rels_from_jsonl(jsonl_path))
+        video_rels = sorted(set(video_rels))
+        print(f"Videos   : {len(video_rels)} files", flush=True)
+
+        def _fetch(rel: str) -> str:
+            return _hub_file(
+                repo_id=repo_id,
+                filename=rel,
+                token=auth_token,
+                dest=dest,
+            )
+
+        with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
+            futures = [pool.submit(_fetch, rel) for rel in video_rels]
+            for future in tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc=f"Videos {split}",
+                unit="file",
+            ):
+                future.result()
     except Exception as exc:
         raise TVPReidAccessError(
             missing_tvpreid_message(f"Failed to download {repo_id}: {exc}")
         ) from exc
-    return Path(snapshot)
+    return dest
+
+
+def video_rels_from_jsonl(path: Path | str) -> list[str]:
+    rels: list[str] = []
+    for row in _read_jsonl(Path(path)):
+        rel = str(row.get("video", "")).replace("\\", "/")
+        if rel:
+            rels.append(rel)
+    return rels
+
+
+def _download_root(local_dir: Path | str | None) -> Path:
+    if local_dir is not None:
+        root = Path(local_dir)
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    kaggle_work = Path("/kaggle/working")
+    if kaggle_work.is_dir():
+        root = kaggle_work / "TVPReid"
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    cache = Path.home() / ".cache" / "shawaf_vlm" / "TVPReid"
+    cache.mkdir(parents=True, exist_ok=True)
+    return cache
+
+
+def _hub_file(
+    repo_id: str,
+    filename: str,
+    token: str | None,
+    dest: Path,
+) -> str:
+    from huggingface_hub import hf_hub_download
+
+    return hf_hub_download(
+        repo_id=repo_id,
+        filename=filename,
+        repo_type="dataset",
+        token=token,
+        local_dir=str(dest),
+    )
 
 
 def load_tvpreid_from_root(

@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
+from tqdm.auto import tqdm
 
 from shawaf_vlm.data.tv_mars import CaptionQuery, GalleryTracklet, TVMarsSplits
 from shawaf_vlm.metrics import evaluate_text_retrieval
@@ -83,7 +84,7 @@ def _prepare_gallery(
     camids: list[int] = []
     skipped = 0
     cache = Path(frame_cache) if frame_cache is not None else None
-    for tracklet in gallery:
+    for tracklet in tqdm(gallery, desc="Decode frames", unit="video"):
         sampled = resolve_frame_paths(
             tracklet.crop_paths,
             num_frames=num_frames,

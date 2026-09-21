@@ -99,7 +99,7 @@ metrics = evaluate_text_to_tracklet(encoder, splits, num_frames=8)
 
 1. Create a notebook with **GPU** and **Internet** on.
 2. Open [`notebooks/kaggle_tv_mars_eval.ipynb`](notebooks/kaggle_tv_mars_eval.ipynb).
-3. It clones [this repo](https://github.com/BASSAT-BASSAT/Benchmarking-Video-Image-language-models-for-Tracklet-retrieval-) and downloads public [bassat6969/TVPReid](https://huggingface.co/datasets/bassat6969/TVPReid). No Hub token.
+3. It clones [this repo](https://github.com/BASSAT-BASSAT/Benchmarking-Video-Image-language-models-for-Tracklet-retrieval-) and downloads only the **test** videos from [bassatbassat/TVPReid](https://huggingface.co/datasets/bassatbassat/TVPReid).
 
 The notebook `pip install -e ".[all]"` and **imports** `shawaf_vlm` — it does not reimplement the eval loop.
 
