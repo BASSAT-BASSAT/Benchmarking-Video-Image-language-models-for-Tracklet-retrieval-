@@ -13,6 +13,7 @@ IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
 def resolve_device(device: str) -> str:
+    requested = device
     if device.startswith("cuda"):
         try:
             import torch
@@ -20,9 +21,52 @@ def resolve_device(device: str) -> str:
             if torch.cuda.is_available():
                 return device
         except ImportError:
+            print(
+                f"WARNING: {requested} requested but torch is missing; using cpu",
+                flush=True,
+            )
             return "cpu"
+        print(
+            f"WARNING: {requested} requested but CUDA is not available; using cpu",
+            flush=True,
+        )
         return "cpu"
     return device
+
+
+def describe_device(device: str) -> str:
+    if not str(device).startswith("cuda"):
+        return str(device)
+    try:
+        import torch
+
+        index = 0
+        if ":" in str(device):
+            index = int(str(device).split(":")[-1])
+        name = torch.cuda.get_device_name(index)
+        return f"{device} ({name})"
+    except Exception:
+        return str(device)
+
+
+def place_model(model: object, device: str) -> object:
+    """Move a frozen encoder to GPU when CUDA is available and print where it landed."""
+
+    import torch
+
+    model.eval()
+    model.to(device)
+    param = next(model.parameters())
+    print(
+        f"Model device: {param.device} dtype={param.dtype} "
+        f"requested={describe_device(device)}",
+        flush=True,
+    )
+    if str(device).startswith("cuda") and param.device.type != "cuda":
+        raise RuntimeError(
+            f"Failed to place model on GPU; weights are on {param.device}"
+        )
+    return model
 
 
 def load_pil_frames(paths: list[Path]) -> list[Image.Image]:
@@ -49,24 +93,43 @@ def frames_to_uint8_tchw(paths: list[Path]) -> "object":
 
 
 def l2_normalize_torch(features: "object") -> "object":
-    import torch
     import torch.nn.functional as F
 
-    return F.normalize(features.float(), dim=-1)
+    tensor = unwrap_features(features)
+    return F.normalize(tensor.float(), dim=-1)
 
 
 def to_numpy(features: "object") -> np.ndarray:
     import torch
 
-    if isinstance(features, torch.Tensor):
-        return features.detach().cpu().float().numpy()
-    return np.asarray(features, dtype=np.float32)
+    tensor = unwrap_features(features)
+    if isinstance(tensor, torch.Tensor):
+        return tensor.detach().cpu().float().numpy()
+    return np.asarray(tensor, dtype=np.float32)
 
 
 def unwrap_features(output: object) -> "object":
+    """Turn CLIP/X-CLIP ModelOutput objects into a 2-D embedding tensor."""
+
+    if isinstance(output, np.ndarray):
+        return output
     if isinstance(output, (tuple, list)):
-        return output[0]
-    return output
+        if not output:
+            raise TypeError("Encoder returned an empty tuple.")
+        return unwrap_features(output[0])
+    if isinstance(output, dict):
+        for key in ("pooler_output", "image_embeds", "text_embeds", "last_hidden_state"):
+            if output.get(key) is not None:
+                return unwrap_features(output[key])
+        raise TypeError(f"Could not unwrap encoder dict keys {list(output)}")
+    # Newer transformers X-CLIP get_video_features returns BaseModelOutputWithPooling.
+    for key in ("pooler_output", "image_embeds", "text_embeds"):
+        value = getattr(output, key, None)
+        if value is not None:
+            return unwrap_features(value)
+    if hasattr(output, "float"):
+        return output
+    raise TypeError(f"Could not unwrap encoder output of type {type(output)!r}")
 
 
 def clip_preprocess_bcthw(

@@ -8,6 +8,7 @@ from tqdm import tqdm
 from shawaf_vlm.models.runtime import (
     frames_to_uint8_tchw,
     l2_normalize_torch,
+    place_model,
     resolve_device,
     to_numpy,
     unwrap_features,
@@ -34,15 +35,28 @@ class InternVideo2Encoder:
         name: str = "internvideo2",
     ) -> None:
         from transformers import AutoModel
+        import torch
 
         self.name = name
         self.checkpoint = checkpoint
         self.device = resolve_device(device)
+        dtype = torch.float16 if self.device.startswith("cuda") else torch.float32
         try:
             self.model = AutoModel.from_pretrained(
                 checkpoint,
                 trust_remote_code=True,
+                torch_dtype=dtype,
             )
+        except TypeError:
+            try:
+                self.model = AutoModel.from_pretrained(
+                    checkpoint,
+                    trust_remote_code=True,
+                )
+            except Exception as exc:
+                if checkpoint == CLIP_1B:
+                    raise RuntimeError(_ONE_B_HELP) from exc
+                raise
         except Exception as exc:
             if checkpoint == CLIP_1B:
                 raise RuntimeError(_ONE_B_HELP) from exc
@@ -55,8 +69,7 @@ class InternVideo2Encoder:
             raise RuntimeError(
                 f"{checkpoint} loaded but has no encode_vision/encode_text API."
             )
-        self.model.eval()
-        self.model.to(self.device)
+        place_model(self.model, self.device)
         if hasattr(self.model, "device"):
             try:
                 self.model.device = self.device

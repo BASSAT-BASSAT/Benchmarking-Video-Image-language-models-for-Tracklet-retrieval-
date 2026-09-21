@@ -96,3 +96,16 @@ def test_text_retrieval_ranks_matching_identity() -> None:
     )
     assert metrics["Rank-1"] == 100.0
     assert metrics["num_valid_queries"] == 2.0
+
+
+def test_unwrap_features_prefers_pooler_output() -> None:
+    from shawaf_vlm.models.runtime import unwrap_features
+
+    class _Pooling:
+        last_hidden_state = "tokens"
+        pooler_output = np.array([[0.2, 0.8]], dtype=np.float32)
+
+    unwrapped = unwrap_features(_Pooling())
+    assert unwrapped.shape == (1, 2)
+    nested = unwrap_features((_Pooling(),))
+    np.testing.assert_array_equal(nested, unwrapped)

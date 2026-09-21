@@ -8,6 +8,7 @@ from tqdm import tqdm
 from shawaf_vlm.models.runtime import (
     imagenet_preprocess_btchw,
     l2_normalize_torch,
+    place_model,
     resolve_device,
     to_numpy,
     unwrap_features,
@@ -22,8 +23,10 @@ class XCLIPEncoder:
 
     def __init__(self, device: str = "cuda") -> None:
         from transformers import AutoModel, AutoProcessor
+        import torch
 
         self.device = resolve_device(device)
+        dtype = torch.float16 if self.device.startswith("cuda") else torch.float32
         try:
             self.processor = AutoProcessor.from_pretrained(
                 self.checkpoint,
@@ -31,9 +34,14 @@ class XCLIPEncoder:
             )
         except TypeError:
             self.processor = AutoProcessor.from_pretrained(self.checkpoint)
-        self.model = AutoModel.from_pretrained(self.checkpoint)
-        self.model.eval()
-        self.model.to(self.device)
+        try:
+            self.model = AutoModel.from_pretrained(
+                self.checkpoint,
+                torch_dtype=dtype,
+            )
+        except TypeError:
+            self.model = AutoModel.from_pretrained(self.checkpoint)
+        place_model(self.model, self.device)
 
     def encode_videos(
         self,

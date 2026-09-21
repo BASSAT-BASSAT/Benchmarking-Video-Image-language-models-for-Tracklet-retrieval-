@@ -8,6 +8,7 @@ from tqdm import tqdm
 from shawaf_vlm.models.runtime import (
     clip_preprocess_bcthw,
     l2_normalize_torch,
+    place_model,
     resolve_device,
     to_numpy,
     unwrap_features,
@@ -22,15 +23,23 @@ class LanguageBindEncoder:
 
     def __init__(self, device: str = "cuda") -> None:
         from transformers import AutoModel, AutoTokenizer
+        import torch
 
         self.device = resolve_device(device)
-        self.model = AutoModel.from_pretrained(
-            self.checkpoint,
-            trust_remote_code=True,
-        )
+        dtype = torch.float16 if self.device.startswith("cuda") else torch.float32
+        try:
+            self.model = AutoModel.from_pretrained(
+                self.checkpoint,
+                trust_remote_code=True,
+                torch_dtype=dtype,
+            )
+        except TypeError:
+            self.model = AutoModel.from_pretrained(
+                self.checkpoint,
+                trust_remote_code=True,
+            )
         self.tokenizer = AutoTokenizer.from_pretrained(self.checkpoint)
-        self.model.eval()
-        self.model.to(self.device)
+        place_model(self.model, self.device)
         vision = getattr(self.model.config, "vision_config", None)
         self.image_size = int(getattr(vision, "image_size", 224) or 224)
 
