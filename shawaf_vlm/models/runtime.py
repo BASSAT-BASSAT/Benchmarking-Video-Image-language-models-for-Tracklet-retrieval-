@@ -113,6 +113,13 @@ def unwrap_features(output: object) -> "object":
 
     if isinstance(output, np.ndarray):
         return output
+    try:
+        import torch
+
+        if isinstance(output, torch.Tensor):
+            return output
+    except ImportError:
+        pass
     if isinstance(output, (tuple, list)):
         if not output:
             raise TypeError("Encoder returned an empty tuple.")
@@ -127,9 +134,15 @@ def unwrap_features(output: object) -> "object":
         value = getattr(output, key, None)
         if value is not None:
             return unwrap_features(value)
-    if hasattr(output, "float"):
-        return output
-    raise TypeError(f"Could not unwrap encoder output of type {type(output)!r}")
+    last = getattr(output, "last_hidden_state", None)
+    if last is not None:
+        tokens = unwrap_features(last)
+        if getattr(tokens, "ndim", 0) >= 2:
+            return tokens[:, 0]
+        return tokens
+    raise TypeError(
+        f"Could not unwrap encoder output of type {type(output)!r}"
+    )
 
 
 def clip_preprocess_bcthw(

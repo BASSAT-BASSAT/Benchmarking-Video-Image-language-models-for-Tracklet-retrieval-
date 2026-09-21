@@ -11,7 +11,6 @@ from shawaf_vlm.models.runtime import (
     place_model,
     resolve_device,
     to_numpy,
-    unwrap_features,
 )
 
 
@@ -101,7 +100,7 @@ class XCLIPEncoder:
                     features = self.model.get_video_features(pixel_values=pixel_values)
             else:
                 features = self.model.get_video_features(pixel_values=pixel_values)
-        return l2_normalize_torch(unwrap_features(features))
+        return l2_normalize_torch(features)
 
     def _forward_texts(self, inputs: dict[str, object]) -> object:
         import torch
@@ -112,4 +111,4 @@ class XCLIPEncoder:
                     features = self.model.get_text_features(**inputs)
             else:
                 features = self.model.get_text_features(**inputs)
-        return l2_normalize_torch(unwrap_features(features))
+        return l2_normalize_torch(features)

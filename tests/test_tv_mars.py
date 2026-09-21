@@ -99,7 +99,7 @@ def test_text_retrieval_ranks_matching_identity() -> None:
 
 
 def test_unwrap_features_prefers_pooler_output() -> None:
-    from shawaf_vlm.models.runtime import unwrap_features
+    from shawaf_vlm.models.runtime import l2_normalize_torch, unwrap_features
 
     class _Pooling:
         last_hidden_state = "tokens"
@@ -109,3 +109,12 @@ def test_unwrap_features_prefers_pooler_output() -> None:
     assert unwrapped.shape == (1, 2)
     nested = unwrap_features((_Pooling(),))
     np.testing.assert_array_equal(nested, unwrapped)
+
+    import torch
+
+    class _HFOutput:
+        last_hidden_state = torch.zeros(1, 8, 2)
+        pooler_output = torch.tensor([[3.0, 4.0]])
+
+    normalized = l2_normalize_torch(_HFOutput())
+    torch.testing.assert_close(normalized, torch.tensor([[0.6, 0.8]]))
