@@ -281,10 +281,14 @@ def test_internvideo2_loader_installs_flash_stub() -> None:
     from shawaf_vlm.models.internvideo2 import InternVideo2Encoder
 
     source = inspect.getsource(InternVideo2Encoder.__init__)
-    assert "install_flash_attn_stub()" in source
+    assert source.index("_purge_broken_flash_attn()") < source.index(
+        "from transformers import"
+    )
+    assert source.index("from transformers import") < source.index(
+        "install_flash_attn_stub()"
+    )
     assert "_force_naive_attention(config)" in source
     assert "trust_remote_code=True" in source
-    assert "PreTrainedModel" in source
 
 
 def test_flash_attn_stub_repairs_spec_less_module() -> None:
@@ -298,3 +302,15 @@ def test_flash_attn_stub_repairs_spec_less_module() -> None:
     install_flash_attn_stub()
     assert importlib.util.find_spec("flash_attn") is not None
     assert sys.modules["flash_attn"].__spec__ is not None
+
+
+def test_purge_broken_flash_attn_makes_find_spec_safe() -> None:
+    import importlib.util
+    import sys
+    import types
+
+    from shawaf_vlm.models.internvideo2 import _purge_broken_flash_attn
+
+    sys.modules["flash_attn"] = types.ModuleType("flash_attn")
+    _purge_broken_flash_attn()
+    importlib.util.find_spec("flash_attn")

@@ -108,6 +108,22 @@ def install_flash_attn_stub() -> None:
     )
 
 
+def _purge_broken_flash_attn() -> None:
+    """Remove spec-less flash_attn stubs left in a reused Kaggle kernel."""
+
+    import sys
+
+    existing = sys.modules.get("flash_attn")
+    if existing is None or getattr(existing, "__spec__", None) is not None:
+        return
+    for name in list(sys.modules):
+        if name == "flash_attn" or name.startswith("flash_attn."):
+            sys.modules.pop(name, None)
+
+
+_purge_broken_flash_attn()
+
+
 def _force_naive_attention(config) -> None:
     model_cfg = getattr(config, "model", None)
     if model_cfg is None:
@@ -139,13 +155,12 @@ class InternVideo2Encoder:
         checkpoint: str = CLIP_S,
         name: str = "internvideo2",
     ) -> None:
-        from transformers import AutoConfig, AutoModel, PreTrainedModel
+        # Leftover 0.1.7 stubs have no __spec__; importing transformers first
+        # makes find_spec raise. Purge, import transformers, then reinstall.
+        _purge_broken_flash_attn()
+        from transformers import AutoConfig, AutoModel
         import transformers.modeling_utils  # noqa: F401
         import torch
-
-        # Probe flash_attn *before* the stub so transformers caches "unavailable"
-        # instead of crashing on a spec-less sys.modules entry.
-        _ = PreTrainedModel
 
         self.name = name
         self.checkpoint = checkpoint
