@@ -289,6 +289,7 @@ def test_internvideo2_loader_installs_flash_stub() -> None:
     )
     assert "_force_naive_attention(config)" in source
     assert "trust_remote_code=True" in source
+    assert "low_cpu_mem_usage=False" in source
 
 
 def test_flash_attn_stub_repairs_spec_less_module() -> None:

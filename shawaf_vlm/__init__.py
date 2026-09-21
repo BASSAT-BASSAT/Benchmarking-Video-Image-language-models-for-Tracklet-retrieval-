@@ -1,4 +1,4 @@
-__version__ = "0.1.9"
+__version__ = "0.1.10"
 
 from shawaf_vlm.data.tv_mars import load_tv_mars
 from shawaf_vlm.data.tvpreid import load_tvpreid

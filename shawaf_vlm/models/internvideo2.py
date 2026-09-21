@@ -176,6 +176,7 @@ class InternVideo2Encoder:
                 dtype,
                 trust_remote_code=True,
                 config=config,
+                low_cpu_mem_usage=False,
             )
         except Exception as exc:
             if checkpoint == CLIP_1B:
