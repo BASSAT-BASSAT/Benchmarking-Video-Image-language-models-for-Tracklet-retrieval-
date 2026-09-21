@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -28,25 +29,35 @@ def evaluate_text_to_tracklet(
 ) -> dict[str, float]:
     """Encode gallery tracklets and caption queries, then rank by cosine."""
 
+    t0 = time.perf_counter()
     gallery_videos, gallery_pids, gallery_camids = _prepare_gallery(
         splits.gallery,
         num_frames=num_frames,
         frame_cache=frame_cache,
     )
     query_texts, query_pids, query_camids = _prepare_queries(splits.query)
+    decode_s = time.perf_counter() - t0
     if not gallery_videos:
         raise RuntimeError("No gallery tracklets with existing crop files.")
     if not query_texts:
         raise RuntimeError("No caption queries with existing crop files.")
 
+    _gpu_reset_peak()
+    t_video = time.perf_counter()
     video_features = encoder.encode_videos(
         gallery_videos,
         batch_size=batch_size,
     )
+    _cuda_sync()
+    video_s = time.perf_counter() - t_video
+    t_text = time.perf_counter()
     text_features = encoder.encode_texts(
         query_texts,
         batch_size=text_batch_size,
     )
+    _cuda_sync()
+    text_s = time.perf_counter() - t_text
+    peak_gpu_gb, reserved_gpu_gb = _gpu_memory_gb()
     if video_features.ndim != 2 or text_features.ndim != 2:
         raise RuntimeError(
             "Encoder must return 2-D embeddings; "
@@ -68,7 +79,8 @@ def evaluate_text_to_tracklet(
             f"{len(query_pids)} queries."
         )
 
-    return evaluate_text_retrieval(
+    t_score = time.perf_counter()
+    metrics = evaluate_text_retrieval(
         query_features=text_features,
         gallery_features=video_features,
         query_pids=query_pids,
@@ -77,6 +89,18 @@ def evaluate_text_to_tracklet(
         gallery_camids=gallery_camids,
         junk_same_camera=junk_same_camera,
     )
+    score_s = time.perf_counter() - t_score
+    _attach_runtime(
+        metrics,
+        decode_s=decode_s,
+        video_s=video_s,
+        text_s=text_s,
+        score_s=score_s,
+        n_video=len(gallery_videos),
+        peak_gpu_gb=peak_gpu_gb,
+        reserved_gpu_gb=reserved_gpu_gb,
+    )
+    return metrics
 
 
 def evaluate_text_to_tracklet_windows(
@@ -99,6 +123,7 @@ def evaluate_text_to_tracklet_windows(
     ``query_max`` scores max clip–text cosine (late interaction / X-Pool-lite).
     """
 
+    t0 = time.perf_counter()
     clip_groups, gallery_pids, gallery_camids = _prepare_window_gallery(
         splits.gallery,
         window=num_frames,
@@ -108,6 +133,7 @@ def evaluate_text_to_tracklet_windows(
         frame_cache=frame_cache,
     )
     query_texts, query_pids, query_camids = _prepare_queries(splits.query)
+    decode_s = time.perf_counter() - t0
     if not clip_groups:
         raise RuntimeError("No gallery tracklets with existing crop files.")
     if not query_texts:
@@ -125,12 +151,21 @@ def evaluate_text_to_tracklet_windows(
         f"(window={num_frames} stride={stride} fps={sample_fps:g} max={max_frames})",
         flush=True,
     )
+    _gpu_reset_peak()
+    t_video = time.perf_counter()
     clip_features = encoder.encode_videos(flat_windows, batch_size=batch_size)
+    _cuda_sync()
+    video_s = time.perf_counter() - t_video
+    t_text = time.perf_counter()
     text_features = encoder.encode_texts(query_texts, batch_size=text_batch_size)
+    _cuda_sync()
+    text_s = time.perf_counter() - t_text
+    peak_gpu_gb, reserved_gpu_gb = _gpu_memory_gb()
     grouped = _group_clip_features(clip_features, owners, len(clip_groups))
 
     scored: dict[str, dict[str, float]] = {}
     for pool in pools:
+        t_score = time.perf_counter()
         if pool == "query_max":
             similarity = query_max_similarity(text_features, grouped)
             metrics = evaluate_from_distmat(
@@ -152,9 +187,78 @@ def evaluate_text_to_tracklet_windows(
                 gallery_camids=gallery_camids,
                 junk_same_camera=junk_same_camera,
             )
+        score_s = time.perf_counter() - t_score
         metrics["num_clips"] = float(len(flat_windows))
+        _attach_runtime(
+            metrics,
+            decode_s=decode_s,
+            video_s=video_s,
+            text_s=text_s,
+            score_s=score_s,
+            n_video=len(flat_windows),
+            peak_gpu_gb=peak_gpu_gb,
+            reserved_gpu_gb=reserved_gpu_gb,
+        )
         scored[pool] = metrics
     return scored
+
+
+def _attach_runtime(
+    metrics: dict[str, float],
+    *,
+    decode_s: float,
+    video_s: float,
+    text_s: float,
+    score_s: float,
+    n_video: int,
+    peak_gpu_gb: float,
+    reserved_gpu_gb: float,
+) -> None:
+    total_s = decode_s + video_s + text_s + score_s
+    metrics["decode_s"] = float(decode_s)
+    metrics["video_s"] = float(video_s)
+    metrics["text_s"] = float(text_s)
+    metrics["score_s"] = float(score_s)
+    metrics["total_s"] = float(total_s)
+    metrics["video_ms_per_item"] = (
+        float(video_s * 1000.0 / n_video) if n_video else 0.0
+    )
+    metrics["peak_gpu_gb"] = float(peak_gpu_gb)
+    metrics["reserved_gpu_gb"] = float(reserved_gpu_gb)
+
+
+def _cuda_sync() -> None:
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+    except Exception:
+        return
+
+
+def _gpu_reset_peak() -> None:
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+            torch.cuda.synchronize()
+    except Exception:
+        return
+
+
+def _gpu_memory_gb() -> tuple[float, float]:
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return 0.0, 0.0
+        allocated = float(torch.cuda.max_memory_allocated()) / (1024**3)
+        reserved = float(torch.cuda.max_memory_reserved()) / (1024**3)
+        return allocated, reserved
+    except Exception:
+        return 0.0, 0.0
 
 
 def _pooled_gallery(

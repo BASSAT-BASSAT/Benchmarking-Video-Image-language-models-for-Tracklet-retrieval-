@@ -15,7 +15,7 @@ Text query ──► VLM text encoder ──► text vector
                                       ↕ cosine
 Tracklet  ──► VLM video encoder ──► video vector
                                       ↓
-                              Rank-1 / 5 / 10 / 20, mAP
+                              Rank-1 / 5 / 10 / 20 / 50, mAP, MdR, MnR, nDCG@10, mINP
 ```
 
 ## Install
@@ -119,7 +119,7 @@ metrics = evaluate_text_to_tracklet(encoder, splits, num_frames=8)
 
 1. Create a notebook with **GPU** and **Internet** on.
 2. Open [`notebooks/kaggle_VLM_eval.ipynb`](notebooks/kaggle_VLM_eval.ipynb) only — do not add extra notebooks.
-3. After any CUDA assert, **Restart session**, then **Run All**. The install cell hard-resets `/kaggle/working/shawaf-vlm` to `origin/main` and must print `shawaf_vlm 0.1.14`.
+3. After any CUDA assert, **Restart session**, then **Run All**. The install cell hard-resets `/kaggle/working/shawaf-vlm` to `origin/main` and must print `shawaf_vlm 0.1.15`.
 4. It downloads only the **test** videos from [bassatbassat/TVPReid](https://huggingface.co/datasets/bassatbassat/TVPReid).
 
 The notebook `pip install -e ".[all]"` and **imports** `shawaf_vlm` — it does not reimplement the eval loop.

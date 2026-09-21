@@ -122,6 +122,11 @@ def test_text_retrieval_ranks_matching_identity() -> None:
     )
     assert metrics["Rank-1"] == 100.0
     assert metrics["num_valid_queries"] == 2.0
+    assert metrics["MdR"] == 1.0
+    assert metrics["MnR"] == 1.0
+    assert metrics["Rank-50"] == 100.0
+    assert metrics["nDCG@10"] == 100.0
+    assert metrics["mINP"] == 75.0
 
 
 def test_l2_normalize_unwraps_model_output() -> None:
@@ -445,4 +450,7 @@ def test_window_eval_pools_perfect_match(tmp_path: Path) -> None:
     for pool in ("mean", "mean_s8", "max", "query_max"):
         assert scored[pool]["Rank-1"] == 100.0
         assert scored[pool]["mAP"] == 100.0
+        assert scored[pool]["MdR"] == 1.0
         assert scored[pool]["num_clips"] > len(gallery)
+        assert "video_s" in scored[pool]
+        assert "peak_gpu_gb" in scored[pool]
