@@ -120,6 +120,12 @@ def test_l2_normalize_unwraps_model_output() -> None:
     torch.testing.assert_close(normalized, torch.tensor([[0.6, 0.8]]))
 
 
+def test_ensure_cuda_healthy_skips_cpu() -> None:
+    from shawaf_vlm.models.runtime import ensure_cuda_healthy
+
+    ensure_cuda_healthy("cpu")
+
+
 def test_languagebind_skips_automodel() -> None:
     import inspect
 

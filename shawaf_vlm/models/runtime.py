@@ -12,6 +12,13 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
+_CUDA_POISON_MSG = (
+    "CUDA is poisoned from an earlier device-side assert. "
+    "On Kaggle: Runtime ▸ Restart session, then Run All from the top. "
+    "The GPU cannot recover inside the same Python process."
+)
+
+
 def resolve_device(device: str) -> str:
     requested = device
     if device.startswith("cuda"):
@@ -32,6 +39,23 @@ def resolve_device(device: str) -> str:
         )
         return "cpu"
     return device
+
+
+def ensure_cuda_healthy(device: str) -> None:
+    """Fail fast if a previous CUDA assert left the GPU unusable."""
+
+    if not str(device).startswith("cuda"):
+        return
+    import torch
+
+    if not torch.cuda.is_available():
+        return
+    try:
+        probe = torch.zeros(1, device=device)
+        del probe
+        torch.cuda.synchronize()
+    except Exception as exc:
+        raise RuntimeError(_CUDA_POISON_MSG) from exc
 
 
 def describe_device(device: str) -> str:
@@ -61,13 +85,23 @@ def load_pretrained(loader, checkpoint: str, dtype: object, **kwargs):
             return loader(checkpoint, **kwargs)
 
 
-def place_model(model: object, device: str) -> object:
+def place_model(model: object, device: str, dtype: object | None = None) -> object:
     """Move a frozen encoder to GPU when CUDA is available and print where it landed."""
 
     import torch
 
+    ensure_cuda_healthy(device)
     model.eval()
-    model.to(device)
+    try:
+        if dtype is not None:
+            model.to(device=device, dtype=dtype)
+        else:
+            model.to(device)
+    except Exception as exc:
+        text = f"{type(exc).__name__}: {exc}".lower()
+        if "device-side assert" in text or "acceleratorerror" in text:
+            raise RuntimeError(_CUDA_POISON_MSG) from exc
+        raise
     param = next(model.parameters())
     print(
         f"Model device: {param.device} dtype={param.dtype} "

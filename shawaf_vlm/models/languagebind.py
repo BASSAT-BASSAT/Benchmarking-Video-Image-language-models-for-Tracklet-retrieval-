@@ -7,6 +7,7 @@ from tqdm import tqdm
 
 from shawaf_vlm.models.runtime import (
     clip_preprocess_bcthw,
+    ensure_cuda_healthy,
     l2_normalize_torch,
     place_model,
     resolve_device,
@@ -79,18 +80,17 @@ class LanguageBindEncoder:
         from shawaf_vlm.models.languagebind_hf.modeling_video import LanguageBindVideo
 
         self.device = resolve_device(device)
+        ensure_cuda_healthy(self.device)
         dtype = torch.float16 if self.device.startswith("cuda") else torch.float32
         config = LanguageBindVideoConfig.from_pretrained(self.checkpoint)
         # Build, wrap LoRA, then remap old PEFT key names onto current peft.
         model = LanguageBindVideo(config)
         _load_languagebind_weights(model, self.checkpoint)
-        if dtype != torch.float32:
-            model = model.to(dtype=dtype)
         self.model = model
         self.tokenizer = CLIPTokenizer.from_pretrained(self.checkpoint)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-        place_model(self.model, self.device)
+        place_model(self.model, self.device, dtype=dtype)
         vision = getattr(self.model.config, "vision_config", None)
         self.image_size = int(getattr(vision, "image_size", 224) or 224)
 
