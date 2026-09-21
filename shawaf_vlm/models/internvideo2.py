@@ -26,33 +26,45 @@ _ONE_B_HELP = (
 )
 
 
+def _stub_module(name: str, is_package: bool = False):
+    import importlib.machinery
+    import types
+
+    module = types.ModuleType(name)
+    spec = importlib.machinery.ModuleSpec(name, loader=None, is_package=is_package)
+    module.__spec__ = spec
+    module.__package__ = name if is_package else name.rpartition(".")[0]
+    if is_package:
+        module.__path__ = []
+    return module
+
+
 def install_flash_attn_stub() -> None:
     """Satisfy InternVideo2 remote-code imports without compiling flash-attn.
 
     CLIP-S already sets use_flash_attn/use_fused_mlp/use_fused_rmsnorm to False
     and uses naive attention. transformers still scans `from flash_attn...`
-    and refuses to load the Hub files unless the package imports.
+    and refuses to load the Hub files unless the package imports. The stub must
+    expose a ModuleSpec: a bare types.ModuleType makes find_spec raise
+    ValueError: flash_attn.__spec__ is None.
     """
 
     import sys
-    import types
 
-    try:
-        import flash_attn  # noqa: F401
-
+    existing = sys.modules.get("flash_attn")
+    if existing is not None and getattr(existing, "__file__", None):
         return
-    except ImportError:
-        pass
 
     from torch import nn
 
-    flash_attn = types.ModuleType("flash_attn")
-    modules = types.ModuleType("flash_attn.modules")
-    mlp = types.ModuleType("flash_attn.modules.mlp")
-    ops = types.ModuleType("flash_attn.ops")
-    rms = types.ModuleType("flash_attn.ops.rms_norm")
-    interface = types.ModuleType("flash_attn.flash_attn_interface")
-    padding = types.ModuleType("flash_attn.bert_padding")
+    flash_attn = _stub_module("flash_attn", is_package=True)
+    flash_attn.__version__ = "0.0.0"
+    modules = _stub_module("flash_attn.modules", is_package=True)
+    mlp = _stub_module("flash_attn.modules.mlp")
+    ops = _stub_module("flash_attn.ops", is_package=True)
+    rms = _stub_module("flash_attn.ops.rms_norm")
+    interface = _stub_module("flash_attn.flash_attn_interface")
+    padding = _stub_module("flash_attn.bert_padding")
 
     class FusedMLP(nn.Module):
         def __init__(self, *args, **kwargs) -> None:
@@ -127,8 +139,13 @@ class InternVideo2Encoder:
         checkpoint: str = CLIP_S,
         name: str = "internvideo2",
     ) -> None:
-        from transformers import AutoConfig, AutoModel
+        from transformers import AutoConfig, AutoModel, PreTrainedModel
+        import transformers.modeling_utils  # noqa: F401
         import torch
+
+        # Probe flash_attn *before* the stub so transformers caches "unavailable"
+        # instead of crashing on a spec-less sys.modules entry.
+        _ = PreTrainedModel
 
         self.name = name
         self.checkpoint = checkpoint

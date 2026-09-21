@@ -228,6 +228,8 @@ def test_disable_incompatible_torchao_patches_peft_probe() -> None:
 
 
 def test_flash_attn_stub_satisfies_internvideo2_imports() -> None:
+    import importlib.util
+
     from shawaf_vlm.models.internvideo2 import install_flash_attn_stub
 
     install_flash_attn_stub()
@@ -239,11 +241,22 @@ def test_flash_attn_stub_satisfies_internvideo2_imports() -> None:
     from flash_attn.bert_padding import pad_input, unpad_input
 
     assert flash_attn is not None
+    assert flash_attn.__spec__ is not None
+    assert importlib.util.find_spec("flash_attn") is not None
     assert FusedMLP is not None
     assert DropoutAddRMSNorm is not None
     assert callable(flash_attn_varlen_qkvpacked_func)
     assert callable(unpad_input)
     assert callable(pad_input)
+
+
+def test_flash_attn_stub_does_not_break_transformers_probe() -> None:
+    from shawaf_vlm.models.internvideo2 import install_flash_attn_stub
+
+    install_flash_attn_stub()
+    from transformers.utils.import_utils import is_flash_attn_2_available
+
+    assert is_flash_attn_2_available() in (True, False)
 
 
 def test_force_naive_attention_clears_flags() -> None:
@@ -271,3 +284,17 @@ def test_internvideo2_loader_installs_flash_stub() -> None:
     assert "install_flash_attn_stub()" in source
     assert "_force_naive_attention(config)" in source
     assert "trust_remote_code=True" in source
+    assert "PreTrainedModel" in source
+
+
+def test_flash_attn_stub_repairs_spec_less_module() -> None:
+    import importlib.util
+    import sys
+    import types
+
+    from shawaf_vlm.models.internvideo2 import install_flash_attn_stub
+
+    sys.modules["flash_attn"] = types.ModuleType("flash_attn")
+    install_flash_attn_stub()
+    assert importlib.util.find_spec("flash_attn") is not None
+    assert sys.modules["flash_attn"].__spec__ is not None
