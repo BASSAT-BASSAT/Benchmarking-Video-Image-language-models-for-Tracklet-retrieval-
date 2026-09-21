@@ -896,6 +896,9 @@ class LanguageBindVideo(CLIPPreTrainedModel):
     def convert_to_lora(self):
         if self.lora_r == 0:
             return
+        from .compat import disable_incompatible_torchao
+
+        disable_incompatible_torchao()
         if self.add_time_attn:
             target_modules = ["temporal_attn.k_proj", "temporal_attn.v_proj",
                               "temporal_attn.q_proj", "temporal_attn.out_proj",

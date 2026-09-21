@@ -145,3 +145,34 @@ class CLIPAttention(nn.Module):
         attn_output = attn_output.transpose(1, 2).reshape(bsz, tgt_len, self.embed_dim)
         attn_output = self.out_proj(attn_output)
         return attn_output, attn_output_weights
+
+
+def disable_incompatible_torchao() -> None:
+    """Skip PEFT's torchao dispatcher when the installed torchao is too old.
+
+    Kaggle currently ships torchao 0.10.0. Recent PEFT raises ImportError unless
+    torchao>=0.16 even for ordinary nn.Linear LoRA, which LanguageBind uses.
+    """
+
+    import sys
+
+    try:
+        import peft.import_utils as import_utils
+    except ImportError:
+        return
+    checker = getattr(import_utils, "is_torchao_available", None)
+    if checker is None:
+        return
+    try:
+        checker()
+        return
+    except Exception:
+        pass
+
+    def _unavailable() -> bool:
+        return False
+
+    import_utils.is_torchao_available = _unavailable
+    for name, module in list(sys.modules.items()):
+        if "peft" in name and hasattr(module, "is_torchao_available"):
+            setattr(module, "is_torchao_available", _unavailable)

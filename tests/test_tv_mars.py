@@ -136,3 +136,40 @@ def test_languagebind_video_config_type() -> None:
     )
 
     assert LanguageBindVideoConfig.model_type == "LanguageBindVideo"
+
+
+def test_disable_incompatible_torchao_patches_peft_probe() -> None:
+    import sys
+    import types
+
+    saved = {
+        name: sys.modules.get(name)
+        for name in ("peft", "peft.import_utils", "peft.tuners.lora.torchao")
+    }
+    fake_utils = types.ModuleType("peft.import_utils")
+
+    def _boom() -> bool:
+        raise ImportError(
+            "Found an incompatible version of torchao. Found version 0.10.0, "
+            "but only versions above 0.16.0 are supported"
+        )
+
+    fake_utils.is_torchao_available = _boom
+    fake_peft = types.ModuleType("peft")
+    fake_lora = types.ModuleType("peft.tuners.lora.torchao")
+    fake_lora.is_torchao_available = _boom
+    try:
+        sys.modules["peft"] = fake_peft
+        sys.modules["peft.import_utils"] = fake_utils
+        sys.modules["peft.tuners.lora.torchao"] = fake_lora
+        from shawaf_vlm.models.languagebind_hf.compat import disable_incompatible_torchao
+
+        disable_incompatible_torchao()
+        assert fake_utils.is_torchao_available() is False
+        assert fake_lora.is_torchao_available() is False
+    finally:
+        for name, module in saved.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
