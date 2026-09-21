@@ -8,7 +8,6 @@ from tqdm import tqdm
 from shawaf_vlm.models.runtime import (
     frames_to_uint8_tchw,
     l2_normalize_torch,
-    load_pretrained,
     place_model,
     resolve_device,
     to_numpy,
@@ -124,47 +123,59 @@ def _purge_broken_flash_attn() -> None:
 _purge_broken_flash_attn()
 
 
-def _replace_meta_init_contexts(contexts):
+def _resolve_internvideo2_class(checkpoint: str, config):
+    from transformers.dynamic_module_utils import get_class_from_dynamic_module
+
+    auto_map = getattr(config, "auto_map", None) or {}
+    class_ref = None
+    if isinstance(auto_map, dict):
+        class_ref = auto_map.get("AutoModel")
+    else:
+        class_ref = getattr(auto_map, "AutoModel", None)
+    if not class_ref:
+        class_ref = "modeling_internvideo2encoder.InternVideo2_CLIP_small"
+    return get_class_from_dynamic_module(class_ref, checkpoint)
+
+
+def _load_internvideo2_state_dict(checkpoint: str) -> dict:
+    from huggingface_hub import hf_hub_download
     import torch
 
-    replaced = []
-    for ctx in contexts:
-        if type(ctx) is torch.device and ctx.type == "meta":
-            replaced.append(torch.device("cpu"))
-        else:
-            replaced.append(ctx)
-    return replaced
+    try:
+        from safetensors.torch import load_file
+
+        path = hf_hub_download(repo_id=checkpoint, filename="model.safetensors")
+        return load_file(path, device="cpu")
+    except Exception:
+        path = hf_hub_download(repo_id=checkpoint, filename="pytorch_model.bin")
+        return torch.load(path, map_location="cpu", weights_only=True)
 
 
-def _cpu_model_init():
-    """transformers 5 always wraps from_pretrained in torch.device('meta').
+def _build_internvideo2_model(checkpoint: str, config, dtype):
+    """Build InternVideo2 without transformers 5 from_pretrained finalize hooks.
 
-    InternVideo2 CLIP-S then does torch.linspace(...).item() in __init__, which
-    meta tensors forbid. low_cpu_mem_usage is popped and ignored on v5.
+    CLIP-S never calls post_init(), so from_pretrained dies on
+    all_tied_weights_keys after the weights are already materialized.
     """
 
-    from contextlib import contextmanager
+    import torch
 
-    @contextmanager
-    def _ctx():
-        from transformers.modeling_utils import PreTrainedModel
-
-        original = getattr(PreTrainedModel, "get_init_context", None)
-        if original is None:
-            yield
-            return
-
-        def patched(cls, *args, **kwargs):
-            raw = original.__func__ if hasattr(original, "__func__") else original
-            return _replace_meta_init_contexts(raw(cls, *args, **kwargs))
-
-        PreTrainedModel.get_init_context = classmethod(patched)
-        try:
-            yield
-        finally:
-            PreTrainedModel.get_init_context = original
-
-    return _ctx()
+    model_cls = _resolve_internvideo2_class(checkpoint, config)
+    with torch.device("cpu"):
+        model = model_cls(config)
+    state = _load_internvideo2_state_dict(checkpoint)
+    incompatible = model.load_state_dict(state, strict=False)
+    loaded = len(state) - len(incompatible.unexpected_keys)
+    print(
+        f"InternVideo2 loaded {loaded}/{len(state)} tensors "
+        f"(missing={len(incompatible.missing_keys)} "
+        f"unexpected={len(incompatible.unexpected_keys)})",
+        flush=True,
+    )
+    model.eval()
+    if dtype is not None:
+        model = model.to(dtype=dtype)
+    return model
 
 
 def _force_naive_attention(config) -> None:
@@ -201,8 +212,7 @@ class InternVideo2Encoder:
         # Leftover 0.1.7 stubs have no __spec__; importing transformers first
         # makes find_spec raise. Purge, import transformers, then reinstall.
         _purge_broken_flash_attn()
-        from transformers import AutoConfig, AutoModel
-        import transformers.modeling_utils  # noqa: F401
+        from transformers import AutoConfig
         import torch
 
         self.name = name
@@ -213,15 +223,7 @@ class InternVideo2Encoder:
         try:
             config = AutoConfig.from_pretrained(checkpoint, trust_remote_code=True)
             _force_naive_attention(config)
-            with _cpu_model_init():
-                self.model = load_pretrained(
-                    AutoModel.from_pretrained,
-                    checkpoint,
-                    dtype,
-                    trust_remote_code=True,
-                    config=config,
-                    low_cpu_mem_usage=False,
-                )
+            self.model = _build_internvideo2_model(checkpoint, config, dtype)
         except Exception as exc:
             if checkpoint == CLIP_1B:
                 raise RuntimeError(_ONE_B_HELP) from exc
@@ -234,7 +236,7 @@ class InternVideo2Encoder:
             raise RuntimeError(
                 f"{checkpoint} loaded but has no encode_vision/encode_text API."
             )
-        place_model(self.model, self.device)
+        place_model(self.model, self.device, dtype=dtype)
         if hasattr(self.model, "device"):
             try:
                 self.model.device = self.device

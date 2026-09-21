@@ -284,13 +284,11 @@ def test_internvideo2_loader_installs_flash_stub() -> None:
     assert source.index("_purge_broken_flash_attn()") < source.index(
         "from transformers import"
     )
-    assert source.index("from transformers import") < source.index(
-        "install_flash_attn_stub()"
-    )
+    assert "_build_internvideo2_model" in source
+    assert "AutoModel.from_pretrained" not in source
+    assert "install_flash_attn_stub()" in source
     assert "_force_naive_attention(config)" in source
     assert "trust_remote_code=True" in source
-    assert "low_cpu_mem_usage=False" in source
-    assert "with _cpu_model_init()" in source
 
 
 def test_flash_attn_stub_repairs_spec_less_module() -> None:
@@ -318,10 +316,17 @@ def test_purge_broken_flash_attn_makes_find_spec_safe() -> None:
     importlib.util.find_spec("flash_attn")
 
 
-def test_cpu_model_init_replaces_meta_device() -> None:
-    import torch
+def test_internvideo2_manual_weight_loader() -> None:
+    import inspect
 
-    from shawaf_vlm.models.internvideo2 import _replace_meta_init_contexts
+    from shawaf_vlm.models.internvideo2 import (
+        _build_internvideo2_model,
+        _load_internvideo2_state_dict,
+        _resolve_internvideo2_class,
+    )
 
-    out = _replace_meta_init_contexts([torch.device("meta"), torch.device("cpu")])
-    assert [ctx.type for ctx in out] == ["cpu", "cpu"]
+    assert "get_class_from_dynamic_module" in inspect.getsource(
+        _resolve_internvideo2_class
+    )
+    assert "load_state_dict" in inspect.getsource(_build_internvideo2_model)
+    assert "model.safetensors" in inspect.getsource(_load_internvideo2_state_dict)
