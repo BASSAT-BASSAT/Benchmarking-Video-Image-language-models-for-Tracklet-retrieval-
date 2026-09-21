@@ -8,6 +8,7 @@ from tqdm import tqdm
 from shawaf_vlm.models.runtime import (
     imagenet_preprocess_btchw,
     l2_normalize_torch,
+    load_pretrained,
     place_model,
     resolve_device,
     to_numpy,
@@ -33,13 +34,7 @@ class XCLIPEncoder:
             )
         except TypeError:
             self.processor = AutoProcessor.from_pretrained(self.checkpoint)
-        try:
-            self.model = AutoModel.from_pretrained(
-                self.checkpoint,
-                torch_dtype=dtype,
-            )
-        except TypeError:
-            self.model = AutoModel.from_pretrained(self.checkpoint)
+        self.model = load_pretrained(AutoModel.from_pretrained, self.checkpoint, dtype)
         place_model(self.model, self.device)
 
     def encode_videos(

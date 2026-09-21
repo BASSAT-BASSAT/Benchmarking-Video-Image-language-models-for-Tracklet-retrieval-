@@ -98,7 +98,7 @@ def test_text_retrieval_ranks_matching_identity() -> None:
     assert metrics["num_valid_queries"] == 2.0
 
 
-def test_unwrap_features_prefers_pooler_output() -> None:
+def test_l2_normalize_unwraps_model_output() -> None:
     from shawaf_vlm.models.runtime import l2_normalize_torch, unwrap_features
 
     class _Pooling:
@@ -118,3 +118,21 @@ def test_unwrap_features_prefers_pooler_output() -> None:
 
     normalized = l2_normalize_torch(_HFOutput())
     torch.testing.assert_close(normalized, torch.tensor([[0.6, 0.8]]))
+
+
+def test_languagebind_skips_automodel() -> None:
+    import inspect
+
+    from shawaf_vlm.models.languagebind import LanguageBindEncoder
+
+    source = inspect.getsource(LanguageBindEncoder.__init__)
+    assert "LanguageBindVideo.from_pretrained" in source
+    assert "AutoModel.from_pretrained" not in source
+
+
+def test_languagebind_video_config_type() -> None:
+    from shawaf_vlm.models.languagebind_hf.configuration_video import (
+        LanguageBindVideoConfig,
+    )
+
+    assert LanguageBindVideoConfig.model_type == "LanguageBindVideo"

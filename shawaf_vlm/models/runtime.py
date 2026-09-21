@@ -49,6 +49,18 @@ def describe_device(device: str) -> str:
         return str(device)
 
 
+def load_pretrained(loader, checkpoint: str, dtype: object, **kwargs):
+    """Load a HF checkpoint using `dtype=` on transformers 5, `torch_dtype=` on 4.x."""
+
+    try:
+        return loader(checkpoint, dtype=dtype, **kwargs)
+    except TypeError:
+        try:
+            return loader(checkpoint, torch_dtype=dtype, **kwargs)
+        except TypeError:
+            return loader(checkpoint, **kwargs)
+
+
 def place_model(model: object, device: str) -> object:
     """Move a frozen encoder to GPU when CUDA is available and print where it landed."""
 

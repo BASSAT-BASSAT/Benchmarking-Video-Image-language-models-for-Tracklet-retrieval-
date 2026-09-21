@@ -8,6 +8,7 @@ from tqdm import tqdm
 from shawaf_vlm.models.runtime import (
     clip_preprocess_bcthw,
     l2_normalize_torch,
+    load_pretrained,
     place_model,
     resolve_device,
     to_numpy,
@@ -22,22 +23,16 @@ class LanguageBindEncoder:
     checkpoint = "LanguageBind/LanguageBind_Video"
 
     def __init__(self, device: str = "cuda") -> None:
-        from transformers import AutoModel, AutoTokenizer
+        from transformers import AutoTokenizer
         import torch
+
+        from shawaf_vlm.models.languagebind_hf import LanguageBindVideo
 
         self.device = resolve_device(device)
         dtype = torch.float16 if self.device.startswith("cuda") else torch.float32
-        try:
-            self.model = AutoModel.from_pretrained(
-                self.checkpoint,
-                trust_remote_code=True,
-                torch_dtype=dtype,
-            )
-        except TypeError:
-            self.model = AutoModel.from_pretrained(
-                self.checkpoint,
-                trust_remote_code=True,
-            )
+        # Hub checkpoint has no auto_map, so AutoConfig cannot resolve
+        # model_type LanguageBindVideo. Load the official class instead.
+        self.model = load_pretrained(LanguageBindVideo.from_pretrained, self.checkpoint, dtype)
         self.tokenizer = AutoTokenizer.from_pretrained(self.checkpoint)
         place_model(self.model, self.device)
         vision = getattr(self.model.config, "vision_config", None)

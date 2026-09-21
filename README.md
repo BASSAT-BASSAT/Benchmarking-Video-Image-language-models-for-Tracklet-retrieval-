@@ -65,7 +65,7 @@ Author machine prefixes are stripped; only the `bbox_train/` or `bbox_test/` suf
 | `--model` | Checkpoint | Notes |
 |---|---|---|
 | `xclip` | `microsoft/xclip-base-patch32` | Smallest; laptop 8 GB is enough |
-| `languagebind` | `LanguageBind/LanguageBind_Video` | Stronger video-language baseline |
+| `languagebind` | `LanguageBind/LanguageBind_Video` | Official LanguageBindVideo class (Hub has no AutoModel `auto_map`) |
 | `internvideo2` | `OpenGVLab/InternVideo2_CLIP_S` | Default InternVideo2 (~373M) |
 | `internvideo2_clip_1b` | `OpenGVLab/InternVideo2-CLIP-1B-224p-f8` | Optional; HF repo is a gated LoRA add-on, not a full AutoModel |
 
@@ -99,7 +99,7 @@ metrics = evaluate_text_to_tracklet(encoder, splits, num_frames=8)
 
 1. Create a notebook with **GPU** and **Internet** on.
 2. Open [`notebooks/kaggle_VLM_eval.ipynb`](notebooks/kaggle_VLM_eval.ipynb) only — do not add extra notebooks.
-3. **Run All**. The install cell hard-resets `/kaggle/working/shawaf-vlm` to `origin/main` and must print `shawaf_vlm 0.1.2`.
+3. **Run All**. The install cell hard-resets `/kaggle/working/shawaf-vlm` to `origin/main` and must print `shawaf_vlm 0.1.3`.
 4. It downloads only the **test** videos from [bassatbassat/TVPReid](https://huggingface.co/datasets/bassatbassat/TVPReid).
 
 The notebook `pip install -e ".[all]"` and **imports** `shawaf_vlm` — it does not reimplement the eval loop.

@@ -8,6 +8,7 @@ from tqdm import tqdm
 from shawaf_vlm.models.runtime import (
     frames_to_uint8_tchw,
     l2_normalize_torch,
+    load_pretrained,
     place_model,
     resolve_device,
     to_numpy,
@@ -42,21 +43,12 @@ class InternVideo2Encoder:
         self.device = resolve_device(device)
         dtype = torch.float16 if self.device.startswith("cuda") else torch.float32
         try:
-            self.model = AutoModel.from_pretrained(
+            self.model = load_pretrained(
+                AutoModel.from_pretrained,
                 checkpoint,
+                dtype,
                 trust_remote_code=True,
-                torch_dtype=dtype,
             )
-        except TypeError:
-            try:
-                self.model = AutoModel.from_pretrained(
-                    checkpoint,
-                    trust_remote_code=True,
-                )
-            except Exception as exc:
-                if checkpoint == CLIP_1B:
-                    raise RuntimeError(_ONE_B_HELP) from exc
-                raise
         except Exception as exc:
             if checkpoint == CLIP_1B:
                 raise RuntimeError(_ONE_B_HELP) from exc
