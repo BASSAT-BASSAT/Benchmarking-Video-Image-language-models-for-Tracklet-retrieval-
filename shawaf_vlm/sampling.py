@@ -181,3 +181,191 @@ def _read_frames_torchvision(video_path: Path, num_frames: int) -> list[np.ndarr
     array = video.numpy()
     indices = _target_indices(array.shape[0], num_frames)
     return [array[index] for index in indices]
+
+
+def sliding_windows(
+    paths: Sequence[Path],
+    window: int = 8,
+    stride: int = 4,
+) -> list[list[Path]]:
+    """Split a dense frame list into overlapping ``window``-frame clips."""
+
+    if window < 1:
+        raise ValueError("window must be >= 1")
+    if stride < 1:
+        raise ValueError("stride must be >= 1")
+    frames = [Path(path) for path in paths]
+    if not frames:
+        return []
+    if len(frames) <= window:
+        return [sample_frame_paths(frames, num_frames=window)]
+
+    last_start = len(frames) - window
+    starts: list[int] = []
+    start = 0
+    while start < last_start:
+        starts.append(start)
+        start += stride
+    if not starts or starts[-1] != last_start:
+        starts.append(last_start)
+    return [frames[begin : begin + window] for begin in starts]
+
+
+def resolve_dense_frame_paths(
+    crop_paths: Sequence[Path],
+    sample_fps: float = 2.0,
+    max_frames: int = 32,
+    frame_cache: Path | str | None = None,
+) -> list[Path]:
+    """Decode a tracklet densely enough for sliding windows, cap at max_frames."""
+
+    if max_frames < 1:
+        raise ValueError("max_frames must be >= 1")
+    paths = [Path(path) for path in crop_paths]
+    if not paths:
+        return []
+    if len(paths) == 1 and is_video_file(paths[0]):
+        return sample_video_frames_by_fps(
+            paths[0],
+            sample_fps=sample_fps,
+            max_frames=max_frames,
+            cache_dir=frame_cache,
+        )
+    if len(paths) > max_frames:
+        return sample_frame_paths(paths, num_frames=max_frames)
+    return paths
+
+
+def sample_video_frames_by_fps(
+    video_path: Path | str,
+    sample_fps: float = 2.0,
+    max_frames: int = 32,
+    cache_dir: Path | str | None = None,
+) -> list[Path]:
+    """Sample ~``sample_fps`` frames, covering the whole video, at most ``max_frames``."""
+
+    if sample_fps <= 0:
+        raise ValueError("sample_fps must be > 0")
+    video_path = Path(video_path)
+    if not video_path.is_file():
+        return []
+
+    if cache_dir is None:
+        cache_dir = video_path.parent / f".frames_fps{sample_fps:g}_n{max_frames}"
+    out_dir = (
+        Path(cache_dir)
+        / f"fps{sample_fps:g}_n{max_frames}"
+        / video_path.parent.parent.name
+        / video_path.stem
+    )
+    existing = sorted(out_dir.glob("frame_*.jpg"))
+    if existing:
+        return existing
+
+    frames = _read_fps_rgb_frames(
+        video_path, sample_fps=sample_fps, max_frames=max_frames
+    )
+    if not frames:
+        return []
+
+    from PIL import Image
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    for index, frame in enumerate(frames):
+        path = out_dir / f"frame_{index:03d}.jpg"
+        Image.fromarray(frame).save(path, quality=95)
+        written.append(path)
+    return written
+
+
+def _read_fps_rgb_frames(
+    video_path: Path,
+    sample_fps: float,
+    max_frames: int,
+) -> list[np.ndarray]:
+    errors: list[str] = []
+    for reader in (_read_fps_frames_cv2, _read_fps_frames_torchvision):
+        try:
+            frames = reader(video_path, sample_fps, max_frames)
+        except Exception as exc:
+            errors.append(f"{reader.__name__}: {exc}")
+            continue
+        if frames:
+            return frames
+    joined = "; ".join(errors) if errors else "no decoder available"
+    print(f"Could not decode {video_path}: {joined}")
+    return []
+
+
+def _fps_target_indices(
+    length: int, src_fps: float, sample_fps: float, max_frames: int
+) -> list[int]:
+    if length <= 0:
+        return []
+    if length == 1:
+        return [0]
+    fps = src_fps if src_fps > 1e-3 else 25.0
+    duration = length / fps
+    count = int(round(duration * sample_fps))
+    count = max(1, min(int(max_frames), count, length))
+    return _target_indices(length, count)
+
+
+def _read_fps_frames_cv2(
+    video_path: Path, sample_fps: float, max_frames: int
+) -> list[np.ndarray]:
+    import cv2
+
+    capture = cv2.VideoCapture(str(video_path))
+    if not capture.isOpened():
+        raise RuntimeError(f"OpenCV could not open {video_path}")
+    try:
+        total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        src_fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+        if total <= 0:
+            collected: list[np.ndarray] = []
+            while True:
+                ok, frame = capture.read()
+                if not ok:
+                    break
+                collected.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            if not collected:
+                raise RuntimeError(f"OpenCV read 0 frames from {video_path}")
+            indices = _fps_target_indices(
+                len(collected), src_fps, sample_fps, max_frames
+            )
+            return [collected[index] for index in indices]
+
+        frames: list[np.ndarray] = []
+        for index in _fps_target_indices(total, src_fps, sample_fps, max_frames):
+            capture.set(cv2.CAP_PROP_POS_FRAMES, index)
+            ok, frame = capture.read()
+            if not ok:
+                continue
+            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        if not frames:
+            raise RuntimeError(f"OpenCV seeked 0 frames from {video_path}")
+        return frames
+    finally:
+        capture.release()
+
+
+def _read_fps_frames_torchvision(
+    video_path: Path, sample_fps: float, max_frames: int
+) -> list[np.ndarray]:
+    import torchvision.io
+
+    video, _, info = torchvision.io.read_video(
+        str(video_path),
+        pts_unit="sec",
+        output_format="THWC",
+    )
+    if video.numel() == 0:
+        raise RuntimeError(f"torchvision read 0 frames from {video_path}")
+    array = video.numpy()
+    src_fps = 0.0
+    if isinstance(info, dict):
+        src_fps = float(info.get("video_fps") or 0.0)
+    indices = _fps_target_indices(array.shape[0], src_fps, sample_fps, max_frames)
+    return [array[index] for index in indices]

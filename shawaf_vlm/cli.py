@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from shawaf_vlm.data.tv_mars import CaptionFilesNotFound, load_tv_mars
-from shawaf_vlm.eval_loop import evaluate_text_to_tracklet
+from shawaf_vlm.eval_loop import evaluate_text_to_tracklet, evaluate_text_to_tracklet_windows
 from shawaf_vlm.metrics import format_metrics
 from shawaf_vlm.models.registry import all_specs, build_encoder
 
@@ -40,6 +40,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--text-batch-size", type=int, default=32)
     parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument(
+        "--windows",
+        action="store_true",
+        help="Sliding-window clip encode + pooling (mean / max / query_max).",
+    )
+    parser.add_argument("--stride", type=int, default=4)
+    parser.add_argument("--sample-fps", type=float, default=2.0)
+    parser.add_argument("--max-frames", type=int, default=32)
+    parser.add_argument(
+        "--pools",
+        type=str,
+        default="mean,mean_s8,max,query_max",
+        help="Comma-separated pooling configs when --windows is set.",
+    )
     parser.add_argument(
         "--junk-same-camera",
         action="store_true",
@@ -96,6 +110,9 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Crops     : {data_root}")
     print(f"Captions  : {ann_root}")
     print(f"Frames    : {args.num_frames}")
+    if args.windows:
+        print(f"Windows   : stride={args.stride} fps={args.sample_fps:g} max={args.max_frames}")
+        print(f"Pools     : {args.pools}")
 
     try:
         splits = load_tv_mars(data_root, ann_root)
@@ -109,16 +126,38 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     encoder = build_encoder(args.model, device=args.device)
-    metrics = evaluate_text_to_tracklet(
-        encoder=encoder,
-        splits=splits,
-        num_frames=args.num_frames,
-        batch_size=args.batch_size,
-        text_batch_size=args.text_batch_size,
-        junk_same_camera=args.junk_same_camera,
-    )
-    print()
-    print(format_metrics(metrics))
+    if args.windows:
+        pools = tuple(name.strip() for name in args.pools.split(",") if name.strip())
+        scored = evaluate_text_to_tracklet_windows(
+            encoder=encoder,
+            splits=splits,
+            num_frames=args.num_frames,
+            stride=args.stride,
+            sample_fps=args.sample_fps,
+            max_frames=args.max_frames,
+            pools=pools,
+            batch_size=args.batch_size,
+            text_batch_size=args.text_batch_size,
+            junk_same_camera=args.junk_same_camera,
+        )
+        print()
+        for pool, metrics in scored.items():
+            print(f"[{pool}]")
+            print(format_metrics(metrics))
+            print()
+        metrics_payload = scored
+    else:
+        metrics = evaluate_text_to_tracklet(
+            encoder=encoder,
+            splits=splits,
+            num_frames=args.num_frames,
+            batch_size=args.batch_size,
+            text_batch_size=args.text_batch_size,
+            junk_same_camera=args.junk_same_camera,
+        )
+        print()
+        print(format_metrics(metrics))
+        metrics_payload = metrics
 
     output.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -131,13 +170,18 @@ def main(argv: list[str] | None = None) -> None:
         "data_root": str(data_root),
         "ann_root": str(ann_root),
         "num_frames": args.num_frames,
+        "windows": args.windows,
+        "stride": args.stride,
+        "sample_fps": args.sample_fps,
+        "max_frames": args.max_frames,
+        "pools": args.pools,
         "batch_size": args.batch_size,
         "text_batch_size": args.text_batch_size,
         "device": args.device,
         "junk_same_camera": args.junk_same_camera,
         "num_queries": len(splits.query),
         "num_gallery": len(splits.gallery),
-        "metrics": metrics,
+        "metrics": metrics_payload,
     }
     output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"Wrote {output}")

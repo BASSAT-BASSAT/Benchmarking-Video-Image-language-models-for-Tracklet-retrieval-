@@ -34,6 +34,32 @@ def test_sample_pads_short_tracklets(tmp_path: Path) -> None:
     assert sampled[-1] == paths[-1]
 
 
+def test_sliding_windows_covers_the_end(tmp_path: Path) -> None:
+    from shawaf_vlm.sampling import sliding_windows
+
+    paths = [tmp_path / f"f{index:02d}.jpg" for index in range(20)]
+    windows = sliding_windows(paths, window=8, stride=4)
+    assert windows[0] == paths[:8]
+    assert windows[-1] == paths[-8:]
+    assert all(len(window) == 8 for window in windows)
+    denser = sliding_windows(paths, window=8, stride=4)
+    coarser = sliding_windows(paths, window=8, stride=8)
+    assert len(denser) > len(coarser)
+
+
+def test_clip_mean_and_query_max_pool() -> None:
+    from shawaf_vlm.pooling import pool_clip_features, query_max_similarity
+
+    clips = np.array([[3.0, 0.0], [2.0, 0.1]], dtype=np.float32)
+    mean = pool_clip_features(clips, "mean")
+    assert mean.shape == (2,)
+    np.testing.assert_allclose(np.linalg.norm(mean), 1.0, atol=1e-5)
+    text = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+    sim = query_max_similarity(text, [clips])
+    assert sim.shape == (2, 1)
+    assert sim[0, 0] > sim[1, 0]
+
+
 def test_load_flat_json_and_official_layout(tmp_path: Path) -> None:
     data_root = tmp_path / "MARS"
     crop = data_root / "bbox_train" / "0009" / "0009C1T0001F001.jpg"
@@ -330,3 +356,93 @@ def test_internvideo2_manual_weight_loader() -> None:
     )
     assert "load_state_dict" in inspect.getsource(_build_internvideo2_model)
     assert "model.safetensors" in inspect.getsource(_load_internvideo2_state_dict)
+
+
+def test_fps_indices_cover_duration() -> None:
+    from shawaf_vlm.sampling import _fps_target_indices
+
+    # 100 frames at 25 fps is 4s; 2 fps → 8 samples, capped below max_frames.
+    indices = _fps_target_indices(100, 25.0, 2.0, 32)
+    assert len(indices) == 8
+    assert indices[0] == 0
+    assert indices[-1] == 99
+
+
+def test_select_clip_rows_derives_stride_8() -> None:
+    from shawaf_vlm.eval_loop import _select_clip_rows
+
+    clips = np.arange(14, dtype=np.float32).reshape(7, 2)
+    picked = _select_clip_rows(clips, factor=2)
+    assert picked.shape[0] == 4
+    np.testing.assert_array_equal(picked[0], clips[0])
+    np.testing.assert_array_equal(picked[-1], clips[-1])
+
+
+def test_window_eval_pools_perfect_match(tmp_path: Path) -> None:
+    from shawaf_vlm.data.tv_mars import CaptionQuery, GalleryTracklet, TVMarsSplits
+    from shawaf_vlm.eval_loop import evaluate_text_to_tracklet_windows
+
+    def make_track(pid: int, cam: int, count: int) -> GalleryTracklet:
+        paths = []
+        for index in range(count):
+            path = tmp_path / f"{pid:04d}C{cam}T0001F{index:03d}.jpg"
+            path.write_bytes(b"x")
+            paths.append(path)
+        return GalleryTracklet(
+            crop_paths=tuple(paths),
+            person_id=pid,
+            camera_id=cam,
+            track_id="T0001",
+        )
+
+    gallery = [make_track(1, 1, 20), make_track(2, 2, 20)]
+    queries = [
+        CaptionQuery(
+            text="person one",
+            person_id=1,
+            camera_id=1,
+            track_id="T0001",
+            crop_paths=gallery[0].crop_paths[:1],
+        ),
+        CaptionQuery(
+            text="person two",
+            person_id=2,
+            camera_id=2,
+            track_id="T0001",
+            crop_paths=gallery[1].crop_paths[:1],
+        ),
+    ]
+    splits = TVMarsSplits(query=queries, gallery=gallery, source="unit")
+
+    class FakeEncoder:
+        name = "fake"
+
+        def encode_videos(self, videos, batch_size=4):
+            rows = []
+            for clip in videos:
+                vector = np.zeros(4, dtype=np.float32)
+                vector[int(clip[0].name[:4])] = 1.0
+                rows.append(vector)
+            return np.stack(rows, axis=0)
+
+        def encode_texts(self, texts, batch_size=32):
+            lookup = {"person one": 1, "person two": 2}
+            rows = []
+            for text in texts:
+                vector = np.zeros(4, dtype=np.float32)
+                vector[lookup[text]] = 1.0
+                rows.append(vector)
+            return np.stack(rows, axis=0)
+
+    scored = evaluate_text_to_tracklet_windows(
+        encoder=FakeEncoder(),
+        splits=splits,
+        num_frames=8,
+        stride=4,
+        max_frames=32,
+        pools=("mean", "mean_s8", "max", "query_max"),
+    )
+    for pool in ("mean", "mean_s8", "max", "query_max"):
+        assert scored[pool]["Rank-1"] == 100.0
+        assert scored[pool]["mAP"] == 100.0
+        assert scored[pool]["num_clips"] > len(gallery)

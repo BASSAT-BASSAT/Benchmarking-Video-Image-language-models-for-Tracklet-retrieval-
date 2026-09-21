@@ -7,9 +7,14 @@ import numpy as np
 from tqdm.auto import tqdm
 
 from shawaf_vlm.data.tv_mars import CaptionQuery, GalleryTracklet, TVMarsSplits
-from shawaf_vlm.metrics import evaluate_text_retrieval
+from shawaf_vlm.metrics import evaluate_from_distmat, evaluate_text_retrieval
 from shawaf_vlm.models.protocol import VideoTextEncoder
-from shawaf_vlm.sampling import resolve_frame_paths
+from shawaf_vlm.pooling import (
+    DEFAULT_POOLS,
+    pool_clip_features,
+    query_max_similarity,
+)
+from shawaf_vlm.sampling import resolve_dense_frame_paths, resolve_frame_paths, sliding_windows
 
 
 def evaluate_text_to_tracklet(
@@ -74,6 +79,126 @@ def evaluate_text_to_tracklet(
     )
 
 
+def evaluate_text_to_tracklet_windows(
+    encoder: VideoTextEncoder,
+    splits: TVMarsSplits,
+    num_frames: int = 8,
+    stride: int = 4,
+    sample_fps: float = 2.0,
+    max_frames: int = 32,
+    pools: Sequence[str] = DEFAULT_POOLS,
+    batch_size: int = 4,
+    text_batch_size: int = 32,
+    junk_same_camera: bool = False,
+    frame_cache: Path | str | None = None,
+) -> dict[str, dict[str, float]]:
+    """Encode sliding-window clips once, then score several pooling configs.
+
+    ``mean`` / ``max`` average or max-pool clip vectors (CLIP4Clip-style).
+    ``mean_s8`` keeps every other stride-4 window (approx. stride 8).
+    ``query_max`` scores max clip–text cosine (late interaction / X-Pool-lite).
+    """
+
+    clip_groups, gallery_pids, gallery_camids = _prepare_window_gallery(
+        splits.gallery,
+        window=num_frames,
+        stride=stride,
+        sample_fps=sample_fps,
+        max_frames=max_frames,
+        frame_cache=frame_cache,
+    )
+    query_texts, query_pids, query_camids = _prepare_queries(splits.query)
+    if not clip_groups:
+        raise RuntimeError("No gallery tracklets with existing crop files.")
+    if not query_texts:
+        raise RuntimeError("No caption queries with existing crop files.")
+
+    flat_windows: list[list[Path]] = []
+    owners: list[int] = []
+    for track_index, windows in enumerate(clip_groups):
+        for window in windows:
+            flat_windows.append(window)
+            owners.append(track_index)
+
+    print(
+        f"Window encode: {len(clip_groups)} tracklets, {len(flat_windows)} clips "
+        f"(window={num_frames} stride={stride} fps={sample_fps:g} max={max_frames})",
+        flush=True,
+    )
+    clip_features = encoder.encode_videos(flat_windows, batch_size=batch_size)
+    text_features = encoder.encode_texts(query_texts, batch_size=text_batch_size)
+    grouped = _group_clip_features(clip_features, owners, len(clip_groups))
+
+    scored: dict[str, dict[str, float]] = {}
+    for pool in pools:
+        if pool == "query_max":
+            similarity = query_max_similarity(text_features, grouped)
+            metrics = evaluate_from_distmat(
+                distmat=(1.0 - similarity).astype(np.float32),
+                query_pids=query_pids,
+                gallery_pids=gallery_pids,
+                query_camids=query_camids,
+                gallery_camids=gallery_camids,
+                junk_same_camera=junk_same_camera,
+            )
+        else:
+            gallery_features = _pooled_gallery(grouped, pool=pool, encode_stride=stride)
+            metrics = evaluate_text_retrieval(
+                query_features=text_features,
+                gallery_features=gallery_features,
+                query_pids=query_pids,
+                gallery_pids=gallery_pids,
+                query_camids=query_camids,
+                gallery_camids=gallery_camids,
+                junk_same_camera=junk_same_camera,
+            )
+        metrics["num_clips"] = float(len(flat_windows))
+        scored[pool] = metrics
+    return scored
+
+
+def _pooled_gallery(
+    grouped: list[np.ndarray],
+    pool: str,
+    encode_stride: int,
+) -> np.ndarray:
+    name = pool
+    factor = 1
+    if pool == "mean_s8":
+        name = "mean"
+        factor = max(1, 8 // max(int(encode_stride), 1))
+    vectors = [
+        pool_clip_features(_select_clip_rows(clips, factor), pool=name)
+        for clips in grouped
+    ]
+    return np.stack(vectors, axis=0)
+
+
+def _select_clip_rows(clips: np.ndarray, factor: int) -> np.ndarray:
+    if factor <= 1 or clips.shape[0] <= 1:
+        return clips
+    indices = list(range(0, clips.shape[0], factor))
+    if indices[-1] != clips.shape[0] - 1:
+        indices.append(clips.shape[0] - 1)
+    return clips[np.asarray(indices, dtype=np.int64)]
+
+
+def _group_clip_features(
+    clip_features: np.ndarray,
+    owners: Sequence[int],
+    num_tracklets: int,
+) -> list[np.ndarray]:
+    grouped: list[list[np.ndarray]] = [[] for _ in range(num_tracklets)]
+    for row, owner in zip(clip_features, owners, strict=True):
+        grouped[int(owner)].append(row)
+    out: list[np.ndarray] = []
+    for clips in grouped:
+        if not clips:
+            raise RuntimeError("A gallery tracklet produced zero window clips.")
+        out.append(np.stack(clips, axis=0))
+    return out
+
+
 def _prepare_gallery(
     gallery: Sequence[GalleryTracklet],
     num_frames: int,
@@ -99,6 +224,38 @@ def _prepare_gallery(
     if skipped:
         print(f"Gallery: skipped {skipped} tracklets without frames")
     return videos, np.asarray(pids, dtype=np.int64), np.asarray(camids, dtype=np.int64)
+
+
+def _prepare_window_gallery(
+    gallery: Sequence[GalleryTracklet],
+    window: int,
+    stride: int,
+    sample_fps: float,
+    max_frames: int,
+    frame_cache: Path | str | None = None,
+) -> tuple[list[list[list[Path]]], np.ndarray, np.ndarray]:
+    groups: list[list[list[Path]]] = []
+    pids: list[int] = []
+    camids: list[int] = []
+    skipped = 0
+    cache = Path(frame_cache) if frame_cache is not None else None
+    for tracklet in tqdm(gallery, desc="Decode windows", unit="video"):
+        dense = resolve_dense_frame_paths(
+            tracklet.crop_paths,
+            sample_fps=sample_fps,
+            max_frames=max_frames,
+            frame_cache=cache,
+        )
+        windows = sliding_windows(dense, window=window, stride=stride)
+        if not windows:
+            skipped += 1
+            continue
+        groups.append(windows)
+        pids.append(int(tracklet.person_id))
+        camids.append(int(tracklet.camera_id))
+    if skipped:
+        print(f"Gallery: skipped {skipped} tracklets without frames")
+    return groups, np.asarray(pids, dtype=np.int64), np.asarray(camids, dtype=np.int64)
 
 
 def _prepare_queries(

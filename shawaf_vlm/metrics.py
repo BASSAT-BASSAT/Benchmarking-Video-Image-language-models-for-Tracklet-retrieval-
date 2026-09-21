@@ -82,6 +82,46 @@ def evaluate_text_retrieval(
     }
 
 
+def evaluate_from_distmat(
+    distmat: np.ndarray,
+    query_pids: np.ndarray,
+    gallery_pids: np.ndarray,
+    query_camids: np.ndarray | None = None,
+    gallery_camids: np.ndarray | None = None,
+    junk_same_camera: bool = False,
+    max_rank: int = 50,
+) -> dict[str, float]:
+    """CMC / mAP from a precomputed (Q, G) distance matrix (1 - cosine)."""
+
+    num_query, num_gallery = distmat.shape
+    if query_camids is None or not junk_same_camera:
+        query_camids = np.full(num_query, -1, dtype=np.int64)
+        gallery_camids = np.arange(num_gallery, dtype=np.int64)
+    elif gallery_camids is None:
+        raise ValueError("gallery_camids is required when junk_same_camera=True")
+
+    all_cmc, all_ap = _eval_cmc_map(
+        distmat=distmat.astype(np.float32),
+        query_pids=query_pids,
+        gallery_pids=gallery_pids,
+        query_camids=query_camids,
+        gallery_camids=gallery_camids,
+        max_rank=max_rank,
+        junk_same_camera=junk_same_camera,
+    )
+    if not all_ap:
+        raise RuntimeError("All query identities are missing from the gallery.")
+    cmc = np.asarray(all_cmc, dtype=np.float32).sum(axis=0) / float(len(all_ap))
+    return {
+        "Rank-1": float(cmc[0] * 100.0),
+        "Rank-5": float(cmc[min(4, len(cmc) - 1)] * 100.0),
+        "Rank-10": float(cmc[min(9, len(cmc) - 1)] * 100.0),
+        "Rank-20": float(cmc[min(19, len(cmc) - 1)] * 100.0),
+        "mAP": float(np.mean(all_ap) * 100.0),
+        "num_valid_queries": float(len(all_ap)),
+    }
+
+
 def format_metrics(metrics: dict[str, Any]) -> str:
     lines = [
         "Text-to-tracklet evaluation",
@@ -92,6 +132,8 @@ def format_metrics(metrics: dict[str, Any]) -> str:
         f"  mAP     : {metrics['mAP']:.2f}",
         f"  valid Q : {int(metrics['num_valid_queries'])}",
     ]
+    if "num_clips" in metrics:
+        lines.append(f"  clips   : {int(metrics['num_clips'])}")
     return "\n".join(lines)
 
 
