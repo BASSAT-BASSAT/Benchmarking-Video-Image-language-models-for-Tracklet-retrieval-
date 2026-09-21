@@ -124,6 +124,49 @@ def _purge_broken_flash_attn() -> None:
 _purge_broken_flash_attn()
 
 
+def _replace_meta_init_contexts(contexts):
+    import torch
+
+    replaced = []
+    for ctx in contexts:
+        if type(ctx) is torch.device and ctx.type == "meta":
+            replaced.append(torch.device("cpu"))
+        else:
+            replaced.append(ctx)
+    return replaced
+
+
+def _cpu_model_init():
+    """transformers 5 always wraps from_pretrained in torch.device('meta').
+
+    InternVideo2 CLIP-S then does torch.linspace(...).item() in __init__, which
+    meta tensors forbid. low_cpu_mem_usage is popped and ignored on v5.
+    """
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _ctx():
+        from transformers.modeling_utils import PreTrainedModel
+
+        original = getattr(PreTrainedModel, "get_init_context", None)
+        if original is None:
+            yield
+            return
+
+        def patched(cls, *args, **kwargs):
+            raw = original.__func__ if hasattr(original, "__func__") else original
+            return _replace_meta_init_contexts(raw(cls, *args, **kwargs))
+
+        PreTrainedModel.get_init_context = classmethod(patched)
+        try:
+            yield
+        finally:
+            PreTrainedModel.get_init_context = original
+
+    return _ctx()
+
+
 def _force_naive_attention(config) -> None:
     model_cfg = getattr(config, "model", None)
     if model_cfg is None:
@@ -170,14 +213,15 @@ class InternVideo2Encoder:
         try:
             config = AutoConfig.from_pretrained(checkpoint, trust_remote_code=True)
             _force_naive_attention(config)
-            self.model = load_pretrained(
-                AutoModel.from_pretrained,
-                checkpoint,
-                dtype,
-                trust_remote_code=True,
-                config=config,
-                low_cpu_mem_usage=False,
-            )
+            with _cpu_model_init():
+                self.model = load_pretrained(
+                    AutoModel.from_pretrained,
+                    checkpoint,
+                    dtype,
+                    trust_remote_code=True,
+                    config=config,
+                    low_cpu_mem_usage=False,
+                )
         except Exception as exc:
             if checkpoint == CLIP_1B:
                 raise RuntimeError(_ONE_B_HELP) from exc

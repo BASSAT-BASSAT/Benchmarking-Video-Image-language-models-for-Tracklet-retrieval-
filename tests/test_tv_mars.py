@@ -290,6 +290,7 @@ def test_internvideo2_loader_installs_flash_stub() -> None:
     assert "_force_naive_attention(config)" in source
     assert "trust_remote_code=True" in source
     assert "low_cpu_mem_usage=False" in source
+    assert "with _cpu_model_init()" in source
 
 
 def test_flash_attn_stub_repairs_spec_less_module() -> None:
@@ -315,3 +316,12 @@ def test_purge_broken_flash_attn_makes_find_spec_safe() -> None:
     sys.modules["flash_attn"] = types.ModuleType("flash_attn")
     _purge_broken_flash_attn()
     importlib.util.find_spec("flash_attn")
+
+
+def test_cpu_model_init_replaces_meta_device() -> None:
+    import torch
+
+    from shawaf_vlm.models.internvideo2 import _replace_meta_init_contexts
+
+    out = _replace_meta_init_contexts([torch.device("meta"), torch.device("cpu")])
+    assert [ctx.type for ctx in out] == ["cpu", "cpu"]
