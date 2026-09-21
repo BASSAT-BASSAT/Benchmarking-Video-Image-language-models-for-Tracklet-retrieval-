@@ -71,12 +71,14 @@ Author machine prefixes are stripped; only the `bbox_train/` or `bbox_test/` suf
 
 Default protocol: **8 frames**, 224², cosine on L2 vectors. Same-camera junk is **off** (the query is text). Pass `--junk-same-camera` only if you need Market1501-style filtering.
 
-Whole-tracklet encoding (`--windows`): sample ~2 fps (capped at 32 frames), take 8-frame clips with stride 4, encode once, then pool several ways without re-encoding:
+Whole-tracklet encoding (`--windows`): sliding 8-frame clips, then pool without a second encode:
 
-- `mean` — average clip vectors (CLIP4Clip mean pooling)
-- `mean_s8` — same clips, keep every other window (stride 8)
-- `max` — max-pool clip dimensions
-- `query_max` — score = max clip–text cosine (late interaction; X-Pool-lite)
+- `uniform8` — 8 frames across the video (Stage 1 baseline)
+- `vt_1fps_n12` — CLIP4Clip sampling (1 fps, 12-frame cap)
+- `vt_2fps_n32` — denser sparse coverage
+- `reid_8fps_n64` — TVPR-style consecutive clips (8 fps, 64-frame cap)
+
+Pools: `mean` (CLIP4Clip), `mean_s8` (stride 8 from a stride-4 encode), `max`, `query_max` (X-Pool-lite).
 
 Related: [CLIP4Clip](https://arxiv.org/abs/2104.08860), [X-Pool](https://arxiv.org/abs/2203.15086), [TVPR](https://arxiv.org/abs/2307.07184).
 
@@ -117,7 +119,7 @@ metrics = evaluate_text_to_tracklet(encoder, splits, num_frames=8)
 
 1. Create a notebook with **GPU** and **Internet** on.
 2. Open [`notebooks/kaggle_VLM_eval.ipynb`](notebooks/kaggle_VLM_eval.ipynb) only — do not add extra notebooks.
-3. After any CUDA assert, **Restart session**, then **Run All**. The install cell hard-resets `/kaggle/working/shawaf-vlm` to `origin/main` and must print `shawaf_vlm 0.1.13`.
+3. After any CUDA assert, **Restart session**, then **Run All**. The install cell hard-resets `/kaggle/working/shawaf-vlm` to `origin/main` and must print `shawaf_vlm 0.1.14`.
 4. It downloads only the **test** videos from [bassatbassat/TVPReid](https://huggingface.co/datasets/bassatbassat/TVPReid).
 
 The notebook `pip install -e ".[all]"` and **imports** `shawaf_vlm` — it does not reimplement the eval loop.
