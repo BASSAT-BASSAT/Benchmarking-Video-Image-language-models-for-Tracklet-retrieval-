@@ -397,6 +397,48 @@ def test_transformers_bert_shims_restore_internvideo_imports() -> None:
     assert callable(modeling_utils.PreTrainedModel.get_head_mask)
 
 
+def test_pretrained_shim_supplies_tied_weight_keys() -> None:
+    import inspect
+
+    import torch
+    from torch import nn
+    from transformers import BertConfig
+    from transformers.modeling_utils import PreTrainedModel
+
+    from shawaf_vlm.models.internvideo2_s2 import install_transformers_pretrained_shims
+
+    install_transformers_pretrained_shims()
+
+    class TinyBert(PreTrainedModel):
+        config_class = BertConfig
+
+        def __init__(self, config):
+            super().__init__(config)
+            self.proj = nn.Linear(4, 4)
+
+        def _init_weights(self, module):
+            return None
+
+    config = BertConfig(
+        hidden_size=32,
+        num_hidden_layers=1,
+        num_attention_heads=4,
+        intermediate_size=64,
+        vocab_size=100,
+    )
+    model = TinyBert(config)
+    assert isinstance(model.all_tied_weights_keys, dict)
+    del model.all_tied_weights_keys
+    parameters = inspect.signature(PreTrainedModel.mark_tied_weights_as_initialized).parameters
+    if "loading_info" in parameters:
+        model.mark_tied_weights_as_initialized(loading_info=None)
+    else:
+        model.mark_tied_weights_as_initialized()
+    assert isinstance(model.all_tied_weights_keys, dict)
+    del model
+    del torch
+
+
 def test_vendored_bert_tokenizer_loads_vocab_before_parent_init(tmp_path: Path) -> None:
     from shawaf_vlm.models.internvideo2_s2 import (
         _patch_vendored_bert_tokenizer,

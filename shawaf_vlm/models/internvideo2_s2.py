@@ -211,6 +211,47 @@ def install_transformers_tokenizer_shims() -> None:
             setattr(module, name, fn)
 
 
+def install_transformers_pretrained_shims() -> None:
+    """Give InternVideo's BERT the tied-weight map transformers 5 expects.
+
+    Vendored BertForMaskedLM calls init_weights() instead of post_init(), so
+    from_pretrained dies in mark_tied_weights_as_initialized after the
+    bert-large weights have already loaded.
+    """
+
+    import inspect
+
+    from transformers.modeling_utils import PreTrainedModel
+
+    if getattr(PreTrainedModel, "_shawaf_tied_keys", False):
+        return
+
+    original_init = PreTrainedModel.__init__
+
+    def patched_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        if getattr(self, "all_tied_weights_keys", None) is None:
+            self.all_tied_weights_keys = {}
+
+    original_mark = PreTrainedModel.mark_tied_weights_as_initialized
+    extra = [
+        parameter
+        for name, parameter in inspect.signature(original_mark).parameters.items()
+        if name != "self" and parameter.default is inspect.Parameter.empty
+    ]
+
+    def patched_mark(self, *args, **kwargs):
+        if getattr(self, "all_tied_weights_keys", None) is None:
+            self.all_tied_weights_keys = {}
+        if extra and not args and "loading_info" not in kwargs:
+            return None
+        return original_mark(self, *args, **kwargs)
+
+    PreTrainedModel.__init__ = patched_init
+    PreTrainedModel.mark_tied_weights_as_initialized = patched_mark
+    PreTrainedModel._shawaf_tied_keys = True
+
+
 def _patch_vendored_bert_tokenizer() -> None:
     """Load the WordPiece vocab before transformers calls get_vocab().
 
@@ -253,6 +294,7 @@ def ensure_internvideo_importable() -> Path:
     install_flash_attn_stub()
     install_transformers_bert_shims()
     install_transformers_tokenizer_shims()
+    install_transformers_pretrained_shims()
     root = multi_modality_dir()
     root_str = str(root)
     if root_str not in sys.path:
