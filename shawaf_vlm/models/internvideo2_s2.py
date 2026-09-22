@@ -183,12 +183,28 @@ def install_transformers_bert_shims() -> None:
         modeling_utils.PreTrainedModel.get_head_mask = _get_head_mask
 
 
+def install_transformers_tokenizer_shims() -> None:
+    """Put InternVideo's vendored BertTokenizer helpers back on tokenization_utils."""
+
+    import transformers.tokenization_utils as tokenization_utils
+    from transformers.tokenization_python import _is_control, _is_punctuation, _is_whitespace
+
+    for name, fn in (
+        ("_is_control", _is_control),
+        ("_is_punctuation", _is_punctuation),
+        ("_is_whitespace", _is_whitespace),
+    ):
+        if not hasattr(tokenization_utils, name):
+            setattr(tokenization_utils, name, fn)
+
+
 def ensure_internvideo_importable() -> Path:
     """Put InternVideo2/multi_modality on sys.path and stub flash-attn."""
 
     _purge_broken_flash_attn()
     install_flash_attn_stub()
     install_transformers_bert_shims()
+    install_transformers_tokenizer_shims()
     root = multi_modality_dir()
     root_str = str(root)
     if root_str not in sys.path:

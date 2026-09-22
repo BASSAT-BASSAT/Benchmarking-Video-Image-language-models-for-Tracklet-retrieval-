@@ -376,9 +376,18 @@ def test_middle_frame_indices_match_internvideo_intervals() -> None:
 def test_transformers_bert_shims_restore_internvideo_imports() -> None:
     import transformers.modeling_utils as modeling_utils
 
-    from shawaf_vlm.models.internvideo2_s2 import install_transformers_bert_shims
+    import transformers.tokenization_utils as tokenization_utils
+
+    from shawaf_vlm.models.internvideo2_s2 import (
+        install_transformers_bert_shims,
+        install_transformers_tokenizer_shims,
+    )
 
     install_transformers_bert_shims()
+    install_transformers_tokenizer_shims()
+    assert callable(tokenization_utils._is_control)
+    assert callable(tokenization_utils._is_punctuation)
+    assert callable(tokenization_utils._is_whitespace)
     assert callable(modeling_utils.apply_chunking_to_forward)
     assert callable(modeling_utils.prune_linear_layer)
     assert callable(modeling_utils.find_pruneable_heads_and_indices)
