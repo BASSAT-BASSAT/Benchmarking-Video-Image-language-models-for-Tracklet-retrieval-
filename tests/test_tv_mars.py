@@ -383,8 +383,11 @@ def test_transformers_bert_shims_restore_internvideo_imports() -> None:
         install_transformers_tokenizer_shims,
     )
 
+    import transformers.tokenization_utils_sentencepiece as sentencepiece
+
     install_transformers_bert_shims()
     install_transformers_tokenizer_shims()
+    assert callable(sentencepiece._is_control)
     assert callable(tokenization_utils._is_control)
     assert callable(tokenization_utils._is_punctuation)
     assert callable(tokenization_utils._is_whitespace)

@@ -125,6 +125,7 @@ def _install_internvideo_package(root: Path) -> None:
         f"{_PACKAGE}.models.internvideo2_stage2_visual",
         f"{_PACKAGE}.models.backbones.bert.tokenization_bert",
     ):
+        install_transformers_tokenizer_shims()
         importlib.import_module(dotted)
 
     models_pkg = sys.modules[models_name]
@@ -184,18 +185,29 @@ def install_transformers_bert_shims() -> None:
 
 
 def install_transformers_tokenizer_shims() -> None:
-    """Put InternVideo's vendored BertTokenizer helpers back on tokenization_utils."""
+    """Put InternVideo's vendored BertTokenizer helpers back on tokenization_utils.
 
-    import transformers.tokenization_utils as tokenization_utils
+    transformers 5 aliases ``tokenization_utils`` at a module whose ``__getattr__``
+    forwards to ``tokenization_utils_sentencepiece``. Importing InternVideo's CLIP
+    tower replaces that alias, so the helpers have to live on the target module.
+    """
+
+    import sys
+
     from transformers.tokenization_python import _is_control, _is_punctuation, _is_whitespace
+    import transformers.tokenization_utils_sentencepiece as sentencepiece
 
-    for name, fn in (
+    helpers = (
         ("_is_control", _is_control),
         ("_is_punctuation", _is_punctuation),
         ("_is_whitespace", _is_whitespace),
-    ):
-        if not hasattr(tokenization_utils, name):
-            setattr(tokenization_utils, name, fn)
+    )
+    modules = [sentencepiece, sys.modules.get("transformers.tokenization_utils")]
+    for module in modules:
+        if module is None:
+            continue
+        for name, fn in helpers:
+            setattr(module, name, fn)
 
 
 def ensure_internvideo_importable() -> Path:
