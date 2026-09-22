@@ -397,6 +397,36 @@ def test_transformers_bert_shims_restore_internvideo_imports() -> None:
     assert callable(modeling_utils.PreTrainedModel.get_head_mask)
 
 
+def test_vendored_bert_tokenizer_loads_vocab_before_parent_init(tmp_path: Path) -> None:
+    from shawaf_vlm.models.internvideo2_s2 import (
+        _patch_vendored_bert_tokenizer,
+        _register_internvideo_parent,
+        install_transformers_tokenizer_shims,
+        multi_modality_dir,
+    )
+
+    try:
+        root = multi_modality_dir()
+    except FileNotFoundError:
+        pytest.skip("InternVideo checkout is not present")
+    install_transformers_tokenizer_shims()
+    _register_internvideo_parent(root)
+    import importlib
+
+    vendored = importlib.import_module(
+        "internvideo_mm.models.backbones.bert.tokenization_bert"
+    )
+    import sys
+
+    sys.modules["models.backbones.bert.tokenization_bert"] = vendored
+    _patch_vendored_bert_tokenizer()
+    vocab = tmp_path / "vocab.txt"
+    vocab.write_text("[PAD]\n[UNK]\n[CLS]\n[SEP]\n[MASK]\nred\n", encoding="utf-8")
+    tokenizer = vendored.BertTokenizer(str(vocab))
+    assert tokenizer.get_vocab()["red"] == 5
+    assert tokenizer.vocab_size >= 5
+
+
 def test_internvideo_criterions_import_is_not_top_level() -> None:
     import importlib
 

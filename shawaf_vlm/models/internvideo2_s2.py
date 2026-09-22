@@ -134,6 +134,7 @@ def _install_internvideo_package(root: Path) -> None:
     models_pkg.InternVideo2_CLIP = clip.InternVideo2_CLIP
     models_pkg.InternVideo2_Stage2_visual = visual.InternVideo2_Stage2_visual
     _alias_internvideo_modules()
+    _patch_vendored_bert_tokenizer()
 
 
 def _find_pruneable_heads_and_indices(heads, n_heads, head_size, already_pruned_heads):
@@ -208,6 +209,41 @@ def install_transformers_tokenizer_shims() -> None:
             continue
         for name, fn in helpers:
             setattr(module, name, fn)
+
+
+def _patch_vendored_bert_tokenizer() -> None:
+    """Load the WordPiece vocab before transformers calls get_vocab().
+
+    InternVideo's BertTokenizer sets ``self.vocab`` after ``super().__init__``.
+    Current transformers calls ``get_vocab()`` inside that parent constructor.
+    """
+
+    import os
+    import sys
+
+    vendored = sys.modules.get("models.backbones.bert.tokenization_bert")
+    if vendored is None:
+        vendored = sys.modules.get(
+            "internvideo_mm.models.backbones.bert.tokenization_bert"
+        )
+    if vendored is None:
+        return
+
+    cls = vendored.BertTokenizer
+    if getattr(cls, "_shawaf_vocab_patch", False):
+        return
+    original_init = cls.__init__
+
+    def patched_init(self, *args, **kwargs):
+        vocab_file = kwargs.get("vocab_file", args[0] if args else None)
+        if isinstance(vocab_file, str) and os.path.isfile(vocab_file):
+            self.vocab = vendored.load_vocab(vocab_file)
+        if not hasattr(self, "added_tokens_encoder"):
+            self.added_tokens_encoder = {}
+        original_init(self, *args, **kwargs)
+
+    cls.__init__ = patched_init
+    cls._shawaf_vocab_patch = True
 
 
 def ensure_internvideo_importable() -> Path:
@@ -388,7 +424,7 @@ class InternVideo2S2Encoder:
         self.device = resolve_device(device)
         self.checkpoint = str(checkpoint or S2_1B_REPO)
         root = ensure_internvideo_importable()
-        from models.backbones.bert.tokenization_bert import BertTokenizer
+        from transformers.models.bert.tokenization_bert import BertTokenizer
         from models.internvideo2_stage2_visual import InternVideo2_Stage2_visual
 
         config = build_s2_config(root)
