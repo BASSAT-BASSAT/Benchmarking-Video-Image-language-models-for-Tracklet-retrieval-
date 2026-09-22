@@ -334,3 +334,11 @@ def build_internvideo2_clip_1b(device: str = "cuda") -> InternVideo2Encoder:
         checkpoint=CLIP_1B,
         name="internvideo2_clip_1b",
     )
+
+
+def build_internvideo2_s2_1b(device: str = "cuda"):
+    """InternVideo2-1B stage-2 retrieval model (BERT text encoder, 4 frames)."""
+
+    from shawaf_vlm.models.internvideo2_s2 import InternVideo2S2Encoder
+
+    return InternVideo2S2Encoder(device=device)

@@ -363,6 +363,102 @@ def test_internvideo2_manual_weight_loader() -> None:
     assert "model.safetensors" in inspect.getsource(_load_internvideo2_state_dict)
 
 
+def test_middle_frame_indices_match_internvideo_intervals() -> None:
+    from shawaf_vlm.sampling import _target_indices, middle_frame_indices
+
+    middle = middle_frame_indices(100, 4)
+    uniform = _target_indices(100, 4)
+    assert middle == [12, 37, 62, 87]
+    assert middle != uniform
+    assert middle_frame_indices(1, 4) == [0, 0, 0, 0]
+
+
+def test_s2_registry_and_retrieval_json(tmp_path: Path) -> None:
+    import torch
+    from torch import nn
+
+    from shawaf_vlm import __version__
+    from shawaf_vlm.data.tv_mars import CaptionQuery, GalleryTracklet, TVMarsSplits
+    from shawaf_vlm.finetune_internvideo2 import (
+        freeze_partial,
+        write_retrieval_json,
+        write_s2_config,
+    )
+    from shawaf_vlm.models.internvideo2_s2 import unwrap_state_dict
+    from shawaf_vlm.models.registry import all_specs
+
+    assert __version__ == "0.1.16"
+    spec = all_specs()["internvideo2_s2_1b"]
+    assert spec.checkpoint == "OpenGVLab/InternVideo2-Stage2_1B-224p-f4"
+
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"mp4")
+    splits = TVMarsSplits(
+        query=[
+            CaptionQuery("red jacket", 1, 0, "a", (video,)),
+            CaptionQuery("black bag", 1, 0, "a", (video,)),
+        ],
+        gallery=[GalleryTracklet((video,), 1, 0, "a")],
+        source="tvpreid:prid:train",
+    )
+    anno = write_retrieval_json(splits, tmp_path / "train.json")
+    rows = json.loads(anno.read_text(encoding="utf-8"))
+    assert len(rows) == 2
+    assert rows[0]["caption"] == "red jacket"
+    assert rows[0]["image"].endswith("clip.mp4")
+
+    config_path = write_s2_config(
+        tmp_path / "config.py",
+        train_json=anno,
+        val_json=anno,
+        pretrained_path=tmp_path / "weights.pt",
+        output_dir=tmp_path / "out",
+    )
+    text = config_path.read_text(encoding="utf-8")
+    assert 'model_cls="InternVideo2_Stage2_visual"' in text
+    assert "vtc=1.0" in text
+    assert "vtm=0.0" in text
+    assert "use_bf16 = False" in text
+    assert "use_flash_attn=False" in text
+
+    class Block(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.lin = nn.Linear(2, 2)
+
+    class TextEncoder(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.encoder = nn.Module()
+            self.encoder.layer = nn.ModuleList([Block() for _ in range(4)])
+
+    class Tiny(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.vision_encoder = nn.Module()
+            self.vision_encoder.blocks = nn.ModuleList([Block() for _ in range(6)])
+            self._text = TextEncoder()
+            self.vision_proj = nn.Linear(2, 2)
+            self.text_proj = nn.Linear(2, 2)
+            self.temp = nn.Parameter(torch.ones([]))
+
+        def get_text_encoder(self) -> TextEncoder:
+            return self._text
+
+    model = Tiny()
+    freeze_partial(model, vision_last_blocks=2, text_last_layers=1)
+    assert not model.vision_encoder.blocks[0].lin.weight.requires_grad
+    assert model.vision_encoder.blocks[-1].lin.weight.requires_grad
+    assert not model.get_text_encoder().encoder.layer[0].lin.weight.requires_grad
+    assert model.get_text_encoder().encoder.layer[-1].lin.weight.requires_grad
+    assert model.vision_proj.weight.requires_grad
+    assert model.text_proj.weight.requires_grad
+    assert model.temp.requires_grad
+
+    wrapped = unwrap_state_dict({"module.vision_proj.weight": torch.zeros(1)})
+    assert "vision_proj.weight" in wrapped
+
+
 def test_fps_indices_cover_duration() -> None:
     from shawaf_vlm.sampling import _fps_target_indices
 

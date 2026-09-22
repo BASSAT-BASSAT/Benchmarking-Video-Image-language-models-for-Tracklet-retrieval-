@@ -47,6 +47,16 @@ _SPECS: dict[str, EncoderSpec] = {
             "Prefer internvideo2 on Kaggle T4."
         ),
     ),
+    "internvideo2_s2_1b": EncoderSpec(
+        key="internvideo2_s2_1b",
+        label="InternVideo2-1B-s2",
+        checkpoint="OpenGVLab/InternVideo2-Stage2_1B-224p-f4",
+        builder="internvideo2_s2_1b",
+        notes=(
+            "BERT-large text encoder plus the 1B stage-2 video encoder. "
+            "4 middle frames, 512-d cosine. Gated Hugging Face weights."
+        ),
+    ),
 }
 
 
@@ -87,9 +97,16 @@ def _build_internvideo2_clip_1b(device: str) -> VideoTextEncoder:
     return build_internvideo2_clip_1b(device=device)
 
 
+def _build_internvideo2_s2_1b(device: str) -> VideoTextEncoder:
+    from shawaf_vlm.models.internvideo2 import build_internvideo2_s2_1b
+
+    return build_internvideo2_s2_1b(device=device)
+
+
 _BUILDERS: dict[str, Callable[..., VideoTextEncoder]] = {
     "xclip": _build_xclip,
     "languagebind": _build_languagebind,
     "internvideo2": _build_internvideo2,
     "internvideo2_clip_1b": _build_internvideo2_clip_1b,
+    "internvideo2_s2_1b": _build_internvideo2_s2_1b,
 }

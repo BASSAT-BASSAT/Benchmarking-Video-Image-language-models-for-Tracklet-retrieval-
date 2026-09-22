@@ -26,6 +26,7 @@ def evaluate_text_to_tracklet(
     text_batch_size: int = 32,
     junk_same_camera: bool = False,
     frame_cache: Path | str | None = None,
+    frame_sample: str = "uniform",
 ) -> dict[str, float]:
     """Encode gallery tracklets and caption queries, then rank by cosine."""
 
@@ -34,6 +35,7 @@ def evaluate_text_to_tracklet(
         splits.gallery,
         num_frames=num_frames,
         frame_cache=frame_cache,
+        frame_sample=frame_sample,
     )
     query_texts, query_pids, query_camids = _prepare_queries(splits.query)
     decode_s = time.perf_counter() - t0
@@ -307,6 +309,7 @@ def _prepare_gallery(
     gallery: Sequence[GalleryTracklet],
     num_frames: int,
     frame_cache: Path | str | None = None,
+    frame_sample: str = "uniform",
 ) -> tuple[list[list[Path]], np.ndarray, np.ndarray]:
     videos: list[list[Path]] = []
     pids: list[int] = []
@@ -318,6 +321,7 @@ def _prepare_gallery(
             tracklet.crop_paths,
             num_frames=num_frames,
             frame_cache=cache,
+            sample=frame_sample,
         )
         if not sampled:
             skipped += 1

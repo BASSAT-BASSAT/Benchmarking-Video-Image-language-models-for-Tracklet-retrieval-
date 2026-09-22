@@ -15,6 +15,7 @@ def is_video_file(path: Path | str) -> bool:
 def sample_frame_paths(
     crop_paths: Sequence[Path],
     num_frames: int = 8,
+    sample: str = "uniform",
 ) -> list[Path]:
     """
     Uniformly sample ``num_frames`` crop paths.
@@ -36,7 +37,7 @@ def sample_frame_paths(
     if len(paths) < num_frames:
         return paths + [paths[-1]] * (num_frames - len(paths))
 
-    indices = np.linspace(0, len(paths) - 1, num=num_frames, dtype=np.int64)
+    indices = _frame_indices(len(paths), num_frames, sample)
     unique = np.unique(indices)
     sampled = [paths[int(index)] for index in unique]
     if len(sampled) < num_frames:
@@ -48,6 +49,7 @@ def resolve_frame_paths(
     crop_paths: Sequence[Path],
     num_frames: int = 8,
     frame_cache: Path | str | None = None,
+    sample: str = "uniform",
 ) -> list[Path]:
     """Return JPEG paths for a tracklet of crops or a single video file."""
 
@@ -57,14 +59,16 @@ def resolve_frame_paths(
             paths[0],
             num_frames=num_frames,
             cache_dir=frame_cache,
+            sample=sample,
         )
-    return sample_frame_paths(paths, num_frames=num_frames)
+    return sample_frame_paths(paths, num_frames=num_frames, sample=sample)
 
 
 def sample_video_frame_paths(
     video_path: Path | str,
     num_frames: int = 8,
     cache_dir: Path | str | None = None,
+    sample: str = "uniform",
 ) -> list[Path]:
     """
     Uniformly sample ``num_frames`` from an mp4 and cache them as JPEGs.
@@ -82,12 +86,20 @@ def sample_video_frame_paths(
     if cache_dir is None:
         cache_dir = video_path.parent / f".frames_{num_frames}"
     cache_root = Path(cache_dir)
-    out_dir = cache_root / video_path.parent.parent.name / video_path.stem
+    sample_name = _normalize_sample(sample)
+    if sample_name == "uniform":
+        out_dir = cache_root / video_path.parent.parent.name / video_path.stem
+    else:
+        out_dir = cache_root / sample_name / video_path.parent.parent.name / video_path.stem
     expected = [out_dir / f"frame_{index:03d}.jpg" for index in range(num_frames)]
     if expected and all(path.is_file() for path in expected):
         return expected
 
-    frames = _read_uniform_rgb_frames(video_path, num_frames=num_frames)
+    frames = _read_uniform_rgb_frames(
+        video_path,
+        num_frames=num_frames,
+        sample=sample_name,
+    )
     if not frames:
         return []
 
@@ -102,11 +114,50 @@ def sample_video_frame_paths(
     return written
 
 
-def _read_uniform_rgb_frames(video_path: Path, num_frames: int) -> list[np.ndarray]:
+def _normalize_sample(sample: str) -> str:
+    key = sample.strip().lower()
+    if key not in {"uniform", "middle"}:
+        raise ValueError(f"Unknown frame sample {sample!r}. Use uniform or middle.")
+    return key
+
+
+def middle_frame_indices(length: int, num_frames: int) -> list[int]:
+    """Pick the midpoint of each equal interval, matching InternVideo2's middle sample."""
+
+    if length <= 0:
+        return []
+    if length == 1:
+        return [0] * num_frames
+    count = min(num_frames, length)
+    edges = np.linspace(0, length, num=count + 1).astype(int)
+    indices: list[int] = []
+    for start, stop in zip(edges[:-1], edges[1:], strict=True):
+        end = int(stop) - 1
+        begin = int(start)
+        if end < begin:
+            end = begin
+        indices.append((begin + end) // 2)
+    if len(indices) < num_frames:
+        indices = indices + [indices[-1]] * (num_frames - len(indices))
+    return indices
+
+
+def _frame_indices(length: int, num_frames: int, sample: str = "uniform") -> list[int]:
+    kind = _normalize_sample(sample)
+    if kind == "middle":
+        return middle_frame_indices(length, num_frames)
+    return _target_indices(length, num_frames)
+
+
+def _read_uniform_rgb_frames(
+    video_path: Path,
+    num_frames: int,
+    sample: str = "uniform",
+) -> list[np.ndarray]:
     errors: list[str] = []
     for reader in (_read_frames_cv2, _read_frames_torchvision):
         try:
-            frames = reader(video_path, num_frames)
+            frames = reader(video_path, num_frames, sample=sample)
         except Exception as exc:
             errors.append(f"{reader.__name__}: {exc}")
             continue
@@ -134,7 +185,11 @@ def _target_indices(length: int, num_frames: int) -> list[int]:
     return [int(index) for index in indices]
 
 
-def _read_frames_cv2(video_path: Path, num_frames: int) -> list[np.ndarray]:
+def _read_frames_cv2(
+    video_path: Path,
+    num_frames: int,
+    sample: str = "uniform",
+) -> list[np.ndarray]:
     import cv2
 
     capture = cv2.VideoCapture(str(video_path))
@@ -151,11 +206,11 @@ def _read_frames_cv2(video_path: Path, num_frames: int) -> list[np.ndarray]:
                 collected.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             if not collected:
                 raise RuntimeError(f"OpenCV read 0 frames from {video_path}")
-            indices = _target_indices(len(collected), num_frames)
+            indices = _frame_indices(len(collected), num_frames, sample)
             return [collected[index] for index in indices]
 
         frames: list[np.ndarray] = []
-        for index in _target_indices(total, num_frames):
+        for index in _frame_indices(total, num_frames, sample):
             capture.set(cv2.CAP_PROP_POS_FRAMES, index)
             ok, frame = capture.read()
             if not ok:
@@ -168,7 +223,11 @@ def _read_frames_cv2(video_path: Path, num_frames: int) -> list[np.ndarray]:
         capture.release()
 
 
-def _read_frames_torchvision(video_path: Path, num_frames: int) -> list[np.ndarray]:
+def _read_frames_torchvision(
+    video_path: Path,
+    num_frames: int,
+    sample: str = "uniform",
+) -> list[np.ndarray]:
     import torchvision.io
 
     video, _, _info = torchvision.io.read_video(
@@ -179,7 +238,7 @@ def _read_frames_torchvision(video_path: Path, num_frames: int) -> list[np.ndarr
     if video.numel() == 0:
         raise RuntimeError(f"torchvision read 0 frames from {video_path}")
     array = video.numpy()
-    indices = _target_indices(array.shape[0], num_frames)
+    indices = _frame_indices(array.shape[0], num_frames, sample)
     return [array[index] for index in indices]
 
 

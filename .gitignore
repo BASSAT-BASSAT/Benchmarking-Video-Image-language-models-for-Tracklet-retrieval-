@@ -21,6 +21,7 @@ htmlcov/
 logs/
 
 datasets/
+InternVideo/
 MARS/
 bbox_train/
 bbox_test/
