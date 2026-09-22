@@ -373,6 +373,23 @@ def test_middle_frame_indices_match_internvideo_intervals() -> None:
     assert middle_frame_indices(1, 4) == [0, 0, 0, 0]
 
 
+def test_internvideo_criterions_import_is_not_top_level() -> None:
+    import importlib
+
+    from shawaf_vlm.models.internvideo2_s2 import (
+        _register_internvideo_parent,
+        multi_modality_dir,
+    )
+
+    try:
+        root = multi_modality_dir()
+    except FileNotFoundError:
+        pytest.skip("InternVideo checkout is not present")
+    _register_internvideo_parent(root)
+    module = importlib.import_module("internvideo_mm.models.criterions")
+    assert module.__package__ == "internvideo_mm.models"
+
+
 def test_s2_registry_and_retrieval_json(tmp_path: Path) -> None:
     import torch
     from torch import nn

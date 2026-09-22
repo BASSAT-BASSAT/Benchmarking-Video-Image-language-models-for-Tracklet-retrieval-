@@ -52,6 +52,89 @@ def multi_modality_dir() -> Path:
     return internvideo_root() / "InternVideo2" / "multi_modality"
 
 
+_PACKAGE = "internvideo_mm"
+
+
+def _clear_broken_models_package(root: Path) -> None:
+    """Drop a top-level ``models`` import of this checkout.
+
+    InternVideo's ``models.criterions`` uses ``from ..utils``. That only works
+    when ``models`` is a subpackage. A previous import that put
+    ``multi_modality`` itself on ``sys.path`` loads ``models`` as top-level and
+    then raises ImportError.
+    """
+
+    existing = sys.modules.get("models")
+    if existing is None or getattr(existing, "__name__", "") == f"{_PACKAGE}.models":
+        return
+    target = str((root / "models").resolve())
+    file_path = str(getattr(existing, "__file__", "") or "")
+    search_path = [str(path) for path in getattr(existing, "__path__", []) or []]
+    if target != file_path and target not in search_path and not file_path.startswith(target):
+        return
+    for key in list(sys.modules):
+        if key == "models" or key.startswith("models."):
+            del sys.modules[key]
+
+
+def _alias_internvideo_modules() -> None:
+    prefix = f"{_PACKAGE}."
+    for name, module in list(sys.modules.items()):
+        if not name.startswith(prefix):
+            continue
+        short = name[len(prefix) :]
+        current = sys.modules.get(short)
+        if current is None or current is module:
+            sys.modules[short] = module
+
+
+def _register_internvideo_parent(root: Path) -> None:
+    """Register InternVideo's multi_modality tree as ``internvideo_mm``.
+
+    ``models/__init__.py`` is not executed. Importing through this parent lets
+    ``models.criterions`` resolve ``from ..utils`` instead of failing as a
+    top-level package.
+    """
+
+    import types
+
+    _clear_broken_models_package(root)
+    if _PACKAGE not in sys.modules:
+        parent = types.ModuleType(_PACKAGE)
+        parent.__path__ = [str(root)]
+        parent.__package__ = _PACKAGE
+        sys.modules[_PACKAGE] = parent
+    models_name = f"{_PACKAGE}.models"
+    if models_name not in sys.modules:
+        models_pkg = types.ModuleType(models_name)
+        models_pkg.__path__ = [str(root / "models")]
+        models_pkg.__package__ = models_name
+        sys.modules[models_name] = models_pkg
+
+
+def _install_internvideo_package(root: Path) -> None:
+    """Import InternVideo models under a parent package, then alias the short names."""
+
+    import importlib
+
+    _register_internvideo_parent(root)
+    models_name = f"{_PACKAGE}.models"
+    # Skip models/__init__.py. It also imports the audiovisual tower, which needs torchaudio.
+    for dotted in (
+        f"{_PACKAGE}.models.internvideo2_clip",
+        f"{_PACKAGE}.models.internvideo2_stage2_visual",
+        f"{_PACKAGE}.models.backbones.bert.tokenization_bert",
+    ):
+        importlib.import_module(dotted)
+
+    models_pkg = sys.modules[models_name]
+    clip = sys.modules[f"{_PACKAGE}.models.internvideo2_clip"]
+    visual = sys.modules[f"{_PACKAGE}.models.internvideo2_stage2_visual"]
+    models_pkg.InternVideo2_CLIP = clip.InternVideo2_CLIP
+    models_pkg.InternVideo2_Stage2_visual = visual.InternVideo2_Stage2_visual
+    _alias_internvideo_modules()
+
+
 def ensure_internvideo_importable() -> Path:
     """Put InternVideo2/multi_modality on sys.path and stub flash-attn."""
 
@@ -61,6 +144,7 @@ def ensure_internvideo_importable() -> Path:
     root_str = str(root)
     if root_str not in sys.path:
         sys.path.insert(0, root_str)
+    _install_internvideo_package(root)
     return root
 
 
@@ -152,8 +236,13 @@ def download_s2_checkpoint(repo_id: str = S2_1B_REPO) -> Path:
         raise RuntimeError(
             "huggingface_hub is required to download InternVideo2-1B-s2 weights."
         ) from exc
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
     try:
-        path = hf_hub_download(repo_id=repo_id, filename=S2_1B_WEIGHT)
+        path = hf_hub_download(
+            repo_id=repo_id,
+            filename=S2_1B_WEIGHT,
+            token=token,
+        )
     except Exception as exc:
         raise RuntimeError(
             f"Could not download {repo_id}/{S2_1B_WEIGHT}. "
