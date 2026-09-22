@@ -135,11 +135,60 @@ def _install_internvideo_package(root: Path) -> None:
     _alias_internvideo_modules()
 
 
+def _find_pruneable_heads_and_indices(heads, n_heads, head_size, already_pruned_heads):
+    """Restore the helper removed from newer transformers."""
+
+    import torch
+
+    mask = torch.ones(n_heads, head_size)
+    heads = set(heads) - already_pruned_heads
+    for head in heads:
+        head = head - sum(1 if h < head else 0 for h in already_pruned_heads)
+        mask[head] = 0
+    mask = mask.view(-1).contiguous().eq(1)
+    index = torch.arange(len(mask))[mask].long()
+    return heads, index
+
+
+def _get_head_mask(self, head_mask, num_hidden_layers, is_attention_chunked=False):
+    """Older BERT forward calls this. Newer transformers dropped it from PreTrainedModel."""
+
+    if head_mask is None:
+        return [None] * num_hidden_layers
+    converted = self._convert_head_mask_to_5d(head_mask, num_hidden_layers)
+    if is_attention_chunked:
+        converted = converted.unsqueeze(-1)
+    return converted
+
+
+def install_transformers_bert_shims() -> None:
+    """Put InternVideo's vendored BERT imports back on transformers.modeling_utils."""
+
+    import transformers.modeling_utils as modeling_utils
+
+    try:
+        from transformers.pytorch_utils import apply_chunking_to_forward, prune_linear_layer
+    except ImportError:
+        apply_chunking_to_forward = None
+        prune_linear_layer = None
+    if apply_chunking_to_forward is not None and not hasattr(
+        modeling_utils, "apply_chunking_to_forward"
+    ):
+        modeling_utils.apply_chunking_to_forward = apply_chunking_to_forward
+    if prune_linear_layer is not None and not hasattr(modeling_utils, "prune_linear_layer"):
+        modeling_utils.prune_linear_layer = prune_linear_layer
+    if not hasattr(modeling_utils, "find_pruneable_heads_and_indices"):
+        modeling_utils.find_pruneable_heads_and_indices = _find_pruneable_heads_and_indices
+    if not hasattr(modeling_utils.PreTrainedModel, "get_head_mask"):
+        modeling_utils.PreTrainedModel.get_head_mask = _get_head_mask
+
+
 def ensure_internvideo_importable() -> Path:
     """Put InternVideo2/multi_modality on sys.path and stub flash-attn."""
 
     _purge_broken_flash_attn()
     install_flash_attn_stub()
+    install_transformers_bert_shims()
     root = multi_modality_dir()
     root_str = str(root)
     if root_str not in sys.path:

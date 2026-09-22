@@ -373,6 +373,18 @@ def test_middle_frame_indices_match_internvideo_intervals() -> None:
     assert middle_frame_indices(1, 4) == [0, 0, 0, 0]
 
 
+def test_transformers_bert_shims_restore_internvideo_imports() -> None:
+    import transformers.modeling_utils as modeling_utils
+
+    from shawaf_vlm.models.internvideo2_s2 import install_transformers_bert_shims
+
+    install_transformers_bert_shims()
+    assert callable(modeling_utils.apply_chunking_to_forward)
+    assert callable(modeling_utils.prune_linear_layer)
+    assert callable(modeling_utils.find_pruneable_heads_and_indices)
+    assert callable(modeling_utils.PreTrainedModel.get_head_mask)
+
+
 def test_internvideo_criterions_import_is_not_top_level() -> None:
     import importlib
 
