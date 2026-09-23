@@ -68,6 +68,7 @@ def _move_inputs(inputs: dict, device: str, dtype) -> dict:
 class _FrameEncoder:
     name = "frame"
     checkpoint = ""
+    frame_microbatch = _FRAME_MICROBATCH
 
     def __init__(self, device: str = "cuda") -> None:
         self.device = resolve_device(device)
@@ -117,8 +118,9 @@ class _FrameEncoder:
         import torch
 
         parts = []
-        for start in range(0, len(images), _FRAME_MICROBATCH):
-            parts.append(self._encode_images(images[start : start + _FRAME_MICROBATCH]))
+        step = max(int(self.frame_microbatch), 1)
+        for start in range(0, len(images), step):
+            parts.append(self._encode_images(images[start : start + step]))
         return torch.cat(parts, dim=0)
 
     def _encode_images(self, images: list[Image.Image]):
