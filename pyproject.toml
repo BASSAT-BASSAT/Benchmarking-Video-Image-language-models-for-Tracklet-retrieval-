@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shawaf-vlm"
-version = "0.1.16"
+version = "0.1.17"
 description = "Stage 1 text-to-tracklet video-language retrieval for SHAWAF"
 requires-python = ">=3.10"
 dependencies = [
@@ -57,6 +57,47 @@ all = [
 ]
 test = [
     "pytest>=8",
+]
+openai_clip = [
+    "torch>=2.1",
+    "torchvision>=0.16",
+    "pillow>=10.0",
+    "clip @ git+https://github.com/openai/CLIP.git",
+]
+jina_clip_v2 = [
+    "torch>=2.1",
+    "transformers>=4.45",
+    "pillow>=10.0",
+    "einops>=0.7",
+    "timm>=1.0",
+]
+gme_qwen2_vl = [
+    "torch>=2.1",
+    "transformers>=4.57.3,<4.58",
+    "sentence-transformers>=5.1",
+    "qwen-vl-utils>=0.0.14",
+    "pillow>=10.0",
+]
+qwen3_vl_embedding = [
+    "torch>=2.8,<2.9",
+    "torchvision>=0.23,<0.24",
+    "transformers>=4.57.3,<4.58",
+    "qwen-vl-utils>=0.0.14",
+    "pillow>=10.0",
+]
+extended = [
+    "torch>=2.8,<2.9",
+    "torchvision>=0.23,<0.24",
+    "transformers>=4.57.3,<4.58",
+    "sentence-transformers>=5.1",
+    "qwen-vl-utils>=0.0.14",
+    "pillow>=10.0",
+    "einops>=0.7",
+    "timm>=1.0",
+    "opencv-python-headless>=4.8",
+    "huggingface_hub>=0.23",
+    "pandas>=2.0",
+    "clip @ git+https://github.com/openai/CLIP.git",
 ]
 
 

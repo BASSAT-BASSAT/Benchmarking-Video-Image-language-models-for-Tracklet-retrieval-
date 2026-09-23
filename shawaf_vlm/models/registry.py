@@ -81,6 +81,37 @@ _SPECS: dict[str, EncoderSpec] = {
             "4 middle frames, 512-d cosine. Gated Hugging Face weights."
         ),
     ),
+    "openai_clip_vit_l14": EncoderSpec(
+        key="openai_clip_vit_l14",
+        label="OpenAI CLIP ViT-L/14",
+        checkpoint="OpenAI ViT-L/14",
+        builder="openai_clip_vit_l14",
+        notes="Official OpenAI frame encoder; normalized frame mean per clip.",
+    ),
+    "jina_clip_v2": EncoderSpec(
+        key="jina_clip_v2",
+        label="Jina CLIP v2",
+        checkpoint="jinaai/jina-clip-v2",
+        builder="jina_clip_v2",
+        notes="Frame encoder; normalized frame mean per clip.",
+    ),
+    "gme_qwen2_vl_2b": EncoderSpec(
+        key="gme_qwen2_vl_2b",
+        label="GME-Qwen2-VL-2B",
+        checkpoint="Alibaba-NLP/gme-Qwen2-VL-2B-Instruct",
+        builder="gme_qwen2_vl_2b",
+        notes=(
+            "Official Sentence Transformers path; image-only visual input is "
+            "mean-pooled across normalized frame embeddings."
+        ),
+    ),
+    "qwen3_vl_embed_2b": EncoderSpec(
+        key="qwen3_vl_embed_2b",
+        label="Qwen3-VL-Embedding-2B",
+        checkpoint="Qwen/Qwen3-VL-Embedding-2B",
+        builder="qwen3_vl_embed_2b",
+        notes="Official native-video embedding path, fp16 and batch 1 on T4.",
+    ),
 }
 
 
@@ -145,6 +176,30 @@ def _build_irra(device: str) -> VideoTextEncoder:
     return IrraEncoder(device=device)
 
 
+def _build_openai_clip_vit_l14(device: str) -> VideoTextEncoder:
+    from shawaf_vlm.models.openai_clip import OpenAIClipEncoder
+
+    return OpenAIClipEncoder(device=device)
+
+
+def _build_jina_clip_v2(device: str) -> VideoTextEncoder:
+    from shawaf_vlm.models.jina_clip_v2 import JinaClipV2Encoder
+
+    return JinaClipV2Encoder(device=device)
+
+
+def _build_gme_qwen2_vl_2b(device: str) -> VideoTextEncoder:
+    from shawaf_vlm.models.gme_qwen2_vl import GmeQwen2VLEncoder
+
+    return GmeQwen2VLEncoder(device=device)
+
+
+def _build_qwen3_vl_embed_2b(device: str) -> VideoTextEncoder:
+    from shawaf_vlm.models.qwen3_vl_embedding import Qwen3VLEmbeddingEncoder
+
+    return Qwen3VLEmbeddingEncoder(device=device)
+
+
 _BUILDERS: dict[str, Callable[..., VideoTextEncoder]] = {
     "xclip": _build_xclip,
     "languagebind": _build_languagebind,
@@ -154,4 +209,8 @@ _BUILDERS: dict[str, Callable[..., VideoTextEncoder]] = {
     "siglip2": _build_siglip2,
     "pe_core_l14": _build_pe_core_l14,
     "irra": _build_irra,
+    "openai_clip_vit_l14": _build_openai_clip_vit_l14,
+    "jina_clip_v2": _build_jina_clip_v2,
+    "gme_qwen2_vl_2b": _build_gme_qwen2_vl_2b,
+    "qwen3_vl_embed_2b": _build_qwen3_vl_embed_2b,
 }

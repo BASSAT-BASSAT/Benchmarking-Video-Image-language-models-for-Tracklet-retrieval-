@@ -223,13 +223,21 @@ class Qwen3VLEmbeddingEncoder:
             images=images,
             videos=videos,
             video_metadata=video_metadata,
-            truncation=True,
-            max_length=self.max_length,
+            # Never truncate visual tokens: doing so caused the documented
+            # token/feature mismatch in the earlier max_length=512 adapter.
+            truncation=False,
             padding=True,
             do_resize=False,
             return_tensors="pt",
             **video_kwargs,
         )
+        sequence_length = int(inputs["input_ids"].shape[1])
+        if sequence_length > self.max_length:
+            raise ValueError(
+                f"Qwen3-VL input uses {sequence_length} tokens, exceeding the "
+                f"official {self.max_length}-token embedding budget. Refusing "
+                "to truncate video tokens."
+            )
         return {
             key: value.to(self.device) if hasattr(value, "to") else value
             for key, value in inputs.items()

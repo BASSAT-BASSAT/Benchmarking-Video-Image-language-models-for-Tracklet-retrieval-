@@ -108,7 +108,13 @@ Python 3.10+. On this laptop the CUDA env is `crowd-gpu`.
 pip install -e ".[all]"
 ```
 
-Extras: `xclip`, `languagebind`, `internvideo2`, or `all`.
+Extras: `xclip`, `languagebind`, `internvideo2`, `extended`, or `all`.
+
+The extended adapters use a separate environment because Qwen3-VL-Embedding
+requires Transformers 4.57+, while GME's direct `AutoModel` remote-code path
+requires Transformers below 4.52. The `extended` extra pins Transformers 4.57.x
+and uses GME's officially documented Sentence Transformers path. The Colab
+notebook pins PyTorch 2.8 / torchvision 0.23 instead of Torch 2.11 + cu130.
 
 ## Dataset
 
@@ -150,6 +156,10 @@ Author machine prefixes are stripped; only the `bbox_train/` or `bbox_test/` suf
 | `languagebind` | `LanguageBind/LanguageBind_Video` | Official LanguageBindVideo class (Hub has no AutoModel `auto_map`) |
 | `internvideo2` | `OpenGVLab/InternVideo2_CLIP_S` | Default InternVideo2 (~373M) |
 | `internvideo2_clip_1b` | `OpenGVLab/InternVideo2-CLIP-1B-224p-f8` | Optional; HF repo is a gated LoRA add-on, not a full AutoModel |
+| `openai_clip_vit_l14` | OpenAI `ViT-L/14` | Official frame encoder; frame mean inside each clip |
+| `jina_clip_v2` | `jinaai/jina-clip-v2` | Frame encoder; frame mean inside each clip |
+| `gme_qwen2_vl_2b` | `Alibaba-NLP/gme-Qwen2-VL-2B-Instruct` | Official image/text ST path; frame mean inside each clip |
+| `qwen3_vl_embed_2b` | `Qwen/Qwen3-VL-Embedding-2B` | Native ordered-frame video input; 8,192-token context, fp16/T4 batch 1 |
 
 Default protocol: **8 frames**, 224², cosine on L2 vectors. Same-camera junk is **off** (the query is text). Pass `--junk-same-camera` only if you need Market1501-style filtering.
 
@@ -162,7 +172,21 @@ Whole-tracklet encoding (`--windows`): sliding 8-frame clips, then pool without 
 
 Pools: `mean` (CLIP4Clip), `mean_s8` (stride 8 from a stride-4 encode), `max`, `query_max` (X-Pool-lite).
 
+`query_max` remains a late-interaction diagnostic and is **not** official
+X-Pool. The three new image/text models use the same frame-normalize → mean
+frames → clip-normalize contract as IRRA. Qwen3-VL-Embedding receives each
+ordered frame list as native video input, then the existing tracklet pools
+operate on its clip embeddings.
+
 Related: [CLIP4Clip](https://arxiv.org/abs/2104.08860), [X-Pool](https://arxiv.org/abs/2203.15086), [TVPR](https://arxiv.org/abs/2307.07184).
+
+## Extended Colab benchmark
+
+Open `notebooks/colab_extended_zero_shot.ipynb` in Google Colab. It checks out
+`feat/extended-zero-shot-benchmark`, installs the pinned T4 environment,
+downloads only selected TVPReid test subsets, validates the chosen encoder,
+runs PRID `uniform8` first, resumes JSON results, and saves every protocol
+immediately. It contains no pre-filled benchmark scores.
 
 ## Run locally
 
