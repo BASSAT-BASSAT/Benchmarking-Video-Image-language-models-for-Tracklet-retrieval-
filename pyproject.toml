@@ -53,6 +53,7 @@ all = [
     "open-clip-torch>=2.24",
     "huggingface_hub>=0.23",
     "opencv-python-headless>=4.8",
+    "gdown>=5.2",
 ]
 test = [
     "pytest>=8",

@@ -18,10 +18,10 @@ CLIP_S = "OpenGVLab/InternVideo2_CLIP_S"
 CLIP_1B = "OpenGVLab/InternVideo2-CLIP-1B-224p-f8"
 
 _ONE_B_HELP = (
-    f"{CLIP_1B} is a gated LoRA add-on, not a full Hugging Face AutoModel. "
-    f"Use --model internvideo2 ({CLIP_S}) for the Stage 1 InternVideo2 baseline, "
-    "or load the official InternVideo2 CLIP-1B stack from OpenGVLab/InternVideo "
-    "if you specifically need the 1B checkpoint."
+    f"{CLIP_1B} publishes 1B_clip.pth (about 14 MB). The official CLIP-1B "
+    "stack also needs internvl_c_13b_224px.pth (about 25 GB) plus the stage-2 "
+    "vision weights, which does not fit a 16 GB T4. Use internvideo2 "
+    f"({CLIP_S}) for the InternVideo2 CLIP baseline."
 )
 
 

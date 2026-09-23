@@ -43,8 +43,32 @@ _SPECS: dict[str, EncoderSpec] = {
         checkpoint="OpenGVLab/InternVideo2-CLIP-1B-224p-f8",
         builder="internvideo2_clip_1b",
         notes=(
-            "Optional. HF repo is a gated LoRA add-on; AutoModel load may fail. "
-            "Prefer internvideo2 on Kaggle T4."
+            "Not in the T4 notebook. The Hub file is a 14 MB add-on; the text "
+            "tower is the 25 GB InternVL-C checkpoint."
+        ),
+    ),
+    "siglip2": EncoderSpec(
+        key="siglip2",
+        label="SigLIP 2 So400m",
+        checkpoint="google/siglip2-so400m-patch14-384",
+        builder="siglip2",
+        notes="Frame encoder, 384px, mean-pooled inside each clip. Public.",
+    ),
+    "pe_core_l14": EncoderSpec(
+        key="pe_core_l14",
+        label="Perception Encoder L/14",
+        checkpoint="timm/PE-Core-L-14-336",
+        builder="pe_core_l14",
+        notes="Meta PE-Core, 336px, 32-token text, mean-pooled frames. Public.",
+    ),
+    "irra": EncoderSpec(
+        key="irra",
+        label="IRRA ViT-B/16",
+        checkpoint="IRRA CUHK-PEDES",
+        builder="irra",
+        notes=(
+            "CVPR 2023 person-description CLIP. Frames are resized to 384x128. "
+            "Zero-shot on TVPReid, trained on CUHK-PEDES."
         ),
     ),
     "internvideo2_s2_1b": EncoderSpec(
@@ -103,10 +127,31 @@ def _build_internvideo2_s2_1b(device: str) -> VideoTextEncoder:
     return build_internvideo2_s2_1b(device=device)
 
 
+def _build_siglip2(device: str) -> VideoTextEncoder:
+    from shawaf_vlm.models.frame_encoders import Siglip2Encoder
+
+    return Siglip2Encoder(device=device)
+
+
+def _build_pe_core_l14(device: str) -> VideoTextEncoder:
+    from shawaf_vlm.models.frame_encoders import PerceptionEncoder
+
+    return PerceptionEncoder(device=device)
+
+
+def _build_irra(device: str) -> VideoTextEncoder:
+    from shawaf_vlm.models.frame_encoders import IrraEncoder
+
+    return IrraEncoder(device=device)
+
+
 _BUILDERS: dict[str, Callable[..., VideoTextEncoder]] = {
     "xclip": _build_xclip,
     "languagebind": _build_languagebind,
     "internvideo2": _build_internvideo2,
     "internvideo2_clip_1b": _build_internvideo2_clip_1b,
     "internvideo2_s2_1b": _build_internvideo2_s2_1b,
+    "siglip2": _build_siglip2,
+    "pe_core_l14": _build_pe_core_l14,
+    "irra": _build_irra,
 }

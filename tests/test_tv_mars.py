@@ -486,6 +486,32 @@ def test_internvideo_criterions_import_is_not_top_level() -> None:
     assert module.__package__ == "internvideo_mm.models"
 
 
+def test_frame_encoder_registry_and_clip_pool() -> None:
+    import torch
+
+    from shawaf_vlm.models.frame_encoders import irra_image_size, mean_pool_clips
+    from shawaf_vlm.models.registry import all_specs
+
+    specs = all_specs()
+    assert specs["siglip2"].checkpoint == "google/siglip2-so400m-patch14-384"
+    assert specs["pe_core_l14"].checkpoint == "timm/PE-Core-L-14-336"
+    assert "CUHK-PEDES" in specs["irra"].checkpoint
+    assert irra_image_size((384 // 16) * (128 // 16) + 1) == (384, 128)
+    assert irra_image_size((224 // 16) * (224 // 16) + 1) == (224, 224)
+
+    frames = torch.tensor(
+        [
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 0.0],
+        ],
+        dtype=torch.float32,
+    )
+    pooled = mean_pool_clips(frames, [2, 1])
+    assert pooled.shape == (2, 2)
+    assert torch.allclose(pooled.norm(dim=-1), torch.ones(2), atol=1e-5)
+
+
 def test_s2_registry_and_retrieval_json(tmp_path: Path) -> None:
     import torch
     from torch import nn
