@@ -23,13 +23,49 @@ def test_extended_encoder_registry() -> None:
     )
 
 
-def test_gme_uses_new_transformers_compatible_official_path() -> None:
+def test_gme_does_not_override_remote_torch_dtype() -> None:
     from shawaf_vlm.models.gme_qwen2_vl import GmeQwen2VLEncoder
 
     source = inspect.getsource(GmeQwen2VLEncoder.__init__)
     assert "SentenceTransformer" in source
     assert "AutoModel" not in source
+    assert "model_kwargs" not in source
+    assert "torch_dtype" not in source
     assert GmeQwen2VLEncoder.frame_microbatch == 1
+
+
+def test_gme_video_encoding_uses_absolute_paths_and_frame_mean(tmp_path: Path) -> None:
+    torch = pytest.importorskip("torch")
+    from shawaf_vlm.models.gme_qwen2_vl import GmeQwen2VLEncoder
+
+    clips = [
+        [tmp_path / "a.jpg", tmp_path / "b.jpg"],
+        [tmp_path / "c.jpg"],
+    ]
+    encoder = GmeQwen2VLEncoder.__new__(GmeQwen2VLEncoder)
+    encoder.device = "cpu"
+    captured = []
+
+    class FakeModel:
+        def encode(self, items, **kwargs):
+            captured.extend(items)
+            return torch.tensor(
+                [[1.0, 0.0], [0.0, 1.0], [0.0, 2.0]],
+                dtype=torch.float32,
+            )
+
+    encoder.model = FakeModel()
+    features = encoder.encode_videos(clips, batch_size=2)
+    assert [item["image"] for item in captured] == [
+        str(path.resolve()) for clip in clips for path in clip
+    ]
+    assert all(isinstance(item["image"], str) for item in captured)
+    np.testing.assert_allclose(np.linalg.norm(features, axis=1), 1.0, atol=1e-6)
+    np.testing.assert_allclose(
+        features[0],
+        np.array([2**-0.5, 2**-0.5], dtype=np.float32),
+        atol=1e-6,
+    )
 
 
 def test_qwen3_video_input_preserves_order_and_context(tmp_path: Path) -> None:
