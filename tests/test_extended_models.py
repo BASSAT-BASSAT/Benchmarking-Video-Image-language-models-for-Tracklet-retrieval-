@@ -3,6 +3,9 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 
 def test_extended_encoder_registry() -> None:
     from shawaf_vlm.models.registry import all_specs
@@ -57,3 +60,27 @@ def test_openai_clip_uses_official_checkpoint() -> None:
     assert OPENAI_CLIP_MODEL == "ViT-L/14"
     source = inspect.getsource(OpenAIClipEncoder.__init__)
     assert "clip.load" in source
+
+
+def test_jina_numpy_outputs_are_converted_to_torch() -> None:
+    torch = pytest.importorskip("torch")
+    from shawaf_vlm.models.jina_clip_v2 import JinaClipV2Encoder, _to_torch_tensor
+
+    converted = _to_torch_tensor(np.array([[3.0, 4.0]], dtype=np.float32))
+    assert isinstance(converted, torch.Tensor)
+
+    encoder = JinaClipV2Encoder.__new__(JinaClipV2Encoder)
+
+    class FakeModel:
+        def encode_image(self, images, truncate_dim=None):
+            return np.array([[3.0, 4.0]], dtype=np.float32)
+
+        def encode_text(self, texts, truncate_dim=None):
+            return np.array([[0.0, 5.0]], dtype=np.float32)
+
+    encoder.model = FakeModel()
+    image_features = encoder._encode_images([object()])
+    text_features = encoder._encode_text_batch(["person"])
+    assert isinstance(image_features, torch.Tensor)
+    assert isinstance(text_features, torch.Tensor)
+    torch.testing.assert_close(image_features.norm(dim=-1), torch.ones(1))

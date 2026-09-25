@@ -15,6 +15,17 @@ from shawaf_vlm.models.runtime import (
 JINA_CLIP_V2 = "jinaai/jina-clip-v2"
 
 
+def _to_torch_tensor(features):
+    """Accept Jina's tensor or NumPy return types with one stable contract."""
+
+    import torch
+
+    value = unwrap_features(features)
+    if isinstance(value, torch.Tensor):
+        return value
+    return torch.as_tensor(value)
+
+
 class JinaClipV2Encoder(_FrameEncoder):
     """Official Jina CLIP v2 remote-code model, pooled per Stage 1 clip."""
 
@@ -38,8 +49,9 @@ class JinaClipV2Encoder(_FrameEncoder):
 
     def _encode_images(self, images: list[Image.Image]):
         features = self.model.encode_image(images, truncate_dim=None)
-        return l2_normalize_torch(unwrap_features(features))
+        return l2_normalize_torch(_to_torch_tensor(features))
 
     def _encode_text_batch(self, texts: list[str]):
         # No retrieval prompt: the main benchmark stays zero-shot and neutral.
-        return unwrap_features(self.model.encode_text(texts, truncate_dim=None))
+        features = self.model.encode_text(texts, truncate_dim=None)
+        return _to_torch_tensor(features)
