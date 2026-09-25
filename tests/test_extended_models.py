@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
+import tomllib
 
 import numpy as np
 import pytest
@@ -96,6 +98,32 @@ def test_openai_clip_uses_official_checkpoint() -> None:
     assert OPENAI_CLIP_MODEL == "ViT-L/14"
     source = inspect.getsource(OpenAIClipEncoder.__init__)
     assert "clip.load" in source
+
+
+def test_extended_dependency_profiles_are_mutually_compatible() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    extras = config["project"]["optional-dependencies"]
+    modern = set(extras["extended_modern"])
+    gme = set(extras["extended_gme"])
+    assert "transformers==4.57.3" in modern
+    assert "transformers==4.51.3" in gme
+    assert "extended" not in extras
+
+    notebook = json.loads(
+        (root / "notebooks" / "colab_extended_zero_shot.ipynb").read_text(
+            encoding="utf-8"
+        )
+    )
+    source = "\n".join(
+        "".join(cell["source"])
+        for cell in notebook["cells"]
+        if cell["cell_type"] == "code"
+    )
+    assert '"gme_qwen2_vl_2b": "gme"' in source
+    assert '"qwen3_vl_embed_2b": "modern"' in source
+    assert '"modern": "4.57.3", "gme": "4.51.3"' in source
+    assert "RUNTIME RESTART REQUIRED" in source
 
 
 def test_jina_numpy_outputs_are_converted_to_torch() -> None:

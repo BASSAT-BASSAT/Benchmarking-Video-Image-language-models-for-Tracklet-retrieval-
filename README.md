@@ -108,13 +108,19 @@ Python 3.10+. On this laptop the CUDA env is `crowd-gpu`.
 pip install -e ".[all]"
 ```
 
-Extras: `xclip`, `languagebind`, `internvideo2`, `extended`, or `all`.
+Extras: `xclip`, `languagebind`, `internvideo2`, `extended_modern`,
+`extended_gme`, or `all`.
 
-The extended adapters use a separate environment because Qwen3-VL-Embedding
-requires Transformers 4.57+, while GME's direct `AutoModel` remote-code path
-requires Transformers below 4.52. The `extended` extra pins Transformers 4.57.x
-and uses GME's officially documented Sentence Transformers path. The Colab
-notebook pins PyTorch 2.8 / torchvision 0.23 instead of Torch 2.11 + cu130.
+The extended adapters require two mutually exclusive environments:
+
+- `extended_modern`: OpenAI CLIP, Jina CLIP v2, and Qwen3-VL-Embedding with
+  Transformers 4.57.3.
+- `extended_gme`: GME-Qwen2-VL-2B with Transformers 4.51.3 and its official
+  Sentence Transformers route.
+
+Both use PyTorch 2.8 / torchvision 0.23. Switching profiles in Colab requires a
+runtime restart; the notebook detects this and stops with instructions. It does
+not patch Hugging Face cached source files.
 
 ## Dataset
 
