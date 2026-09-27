@@ -52,7 +52,11 @@ Text encoding is under a few seconds in every run. IRRA is the accuracy leader a
 
 ### RSTPReid and GroOT-MOT17
 
-The same notebook also benchmarks RSTPReid (2,000 captions, 1,000 single-image tracklets, 200 IDs) and GroOT-MOT17. GroOT-MOT17 has 454 MOT17 tracklets and 798 captions: 344 appearance captions and 454 action captions. Results will be added here after the Kaggle runs. The notebook writes them to `zero_shot_results/tables/report.md`.
+The same notebook also benchmarks RSTPReid (2,000 captions, 1,000 single-image tracklets, 200 IDs) and GroOT-MOT17. GroOT-MOT17 has 454 MOT17 tracklets and 798 GroOT captions: 344 appearance captions and 454 action captions. It also has our `combined` query set: one refined sentence per track that describes both appearance and action, for the 344 tracks that have both captions.
+
+The action captions are mostly generic. Only 112 of the 454 are unique, and "a person walking on the street" alone covers 78 tracks. That makes `action` Rank-1 a measure of caption ambiguity more than of the model. The `combined` captions start from a rule-based merge (`combine_captions`). An LLM assistant in Cursor then reviewed all 344 one by one: it fixed grammar and duplicated phrases, and it resolved two gender conflicts by checking the frames. It added no new attributes. They are stored in [`shawaf_vlm/data/groot_mot17_combined.json`](shawaf_vlm/data/groot_mot17_combined.json).
+
+Results will be added here after the Kaggle runs. The notebook writes them to `zero_shot_results/tables/report.md`.
 
 ### What the number is averaging
 
@@ -247,13 +251,13 @@ metrics = evaluate_text_to_tracklet(encoder, splits, num_frames=8)
 |---|---|---|
 | TVPReid (PRID / iLIDS / Duke) | video tracklets | [bassatbassat/TVPReid](https://huggingface.co/datasets/bassatbassat/TVPReid), test videos only |
 | RSTPReid | one image per tracklet | Google Drive via `gdown` (MSMT17 license forbids re-hosting) |
-| GroOT-MOT17 (`all` / `appearance` / `action`) | video tracklets | [bassatbassat/GroOT-MOT17](https://huggingface.co/datasets/bassatbassat/GroOT-MOT17) |
+| GroOT-MOT17 (`all` / `appearance` / `action` / `combined`) | video tracklets | [bassatbassat/GroOT-MOT17](https://huggingface.co/datasets/bassatbassat/GroOT-MOT17) |
 
-Each result is saved as JSON right away under `zero_shot_results/<ENV_GROUP>/<dataset>/`. Finished rows are skipped when you rerun. The table cells merge every group, plus any earlier `zero_shot_results` you attach as a Kaggle input. They show the leaderboard, a cross-dataset Rank-1 matrix, pool comparisons, the GroOT appearance-vs-action gap, and speed/GPU. They also write CSVs and `report.md` to `zero_shot_results/tables/`.
+Each result is saved as JSON right away under `zero_shot_results/<ENV_GROUP>/<dataset>/`. Finished rows are skipped when you rerun. The table cells merge every group, plus any earlier `zero_shot_results` you attach as a Kaggle input. They show the leaderboard, a cross-dataset Rank-1 matrix, pool comparisons, the GroOT appearance vs action vs combined comparison, and speed/GPU. They also write CSVs and `report.md` to `zero_shot_results/tables/`.
 
 The notebook runs `pip install -e ".[all]"` and **imports** `shawaf_vlm`. It does not reimplement the eval loop.
 
-GroOT-MOT17 was built once from MOT17 train (FRCNN copy) and the [GroOT](https://github.com/uark-cviu/GroOT) captions:
+GroOT-MOT17 was built once from MOT17 train (FRCNN copy) and the [GroOT](https://github.com/uark-cviu/Type-to-Track) captions (Nguyen et al., NeurIPS 2023):
 
 ```bash
 python scripts/build_groot_mot17.py --out build/GroOT-MOT17 --upload

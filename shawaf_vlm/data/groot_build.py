@@ -2,8 +2,9 @@
 
 GroOT (Nguyen et al., NeurIPS 2023) attaches ``captions = [appearance, action]``
 to every MOT17 box. This module crops each track from the MOT17 FRCNN frames,
-writes one mp4 per track, and emits ``metadata/{all,appearance,action}-test.jsonl``
-in the same layout as bassatbassat/TVPReid.
+writes one mp4 per track, and emits ``metadata/{all,appearance,action,combined}-test.jsonl``
+in the same layout as bassatbassat/TVPReid. ``combined`` holds one refined sentence
+per track that merges both GroOT captions (see ``groot_mot17_combined.json``).
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import json
 import re
 import statistics
 import zipfile
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -26,7 +27,7 @@ GROOT_JSON_URL = (
     "annotations/v1.0/mot17_train_coco.json"
 )
 MOT17_ZIP_URL = "https://motchallenge.net/data/MOT17.zip"
-CONFIGS = ("all", "appearance", "action")
+CONFIGS = ("all", "appearance", "action", "combined")
 SUBSET = "groot_mot17"
 SPLIT = "test"
 
@@ -64,6 +65,71 @@ def clean_caption(value: object) -> str | None:
     if not text or text.lower() == "none":
         return None
     return text
+
+
+SUBJECTS = ("man", "woman", "person", "boy", "girl", "child", "kid", "lady", "guy", "pedestrian")
+GENERIC_SUBJECTS = ("person", "pedestrian")
+_ARTICLE_RE = re.compile(r"^(a|an|the)\s+")
+
+
+def normalize_caption(text: str) -> str:
+    text = re.sub(r"\s+", " ", text.strip().lower()).rstrip(" .")
+    return re.sub(r"\bt ?shirt\b", "t-shirt", text)
+
+
+def split_subject(text: str) -> tuple[str | None, str]:
+    """``"a young girl wearing pink"`` -> ``("young girl", "wearing pink")``.
+
+    Up to two words may precede the subject noun.
+    """
+
+    body = _ARTICLE_RE.sub("", normalize_caption(text))
+    words = body.split(" ")
+    for index, word in enumerate(words[:3]):
+        if word in SUBJECTS:
+            rest = " ".join(words[index + 1 :])
+            return " ".join(words[: index + 1]), re.sub(r"^(is|are)\s+", "", rest)
+    return None, body
+
+
+def combine_captions(appearance: str, action: str) -> str:
+    """Merge GroOT's appearance and action captions into one sentence about one subject.
+
+    The more specific subject wins (``woman`` over ``person``), so
+    ``("person wearing black coat", "woman walking on the sidewalk")`` becomes
+    ``"a woman wearing black coat, walking on the sidewalk"``.
+    """
+
+    look_subject, look = split_subject(appearance)
+    act_subject, act = split_subject(action)
+    specific = [s for s in (look_subject, act_subject) if s and s.split(" ")[-1] not in GENERIC_SUBJECTS]
+    subject = specific[0] if specific else look_subject or act_subject or "person"
+    if look and look_subject is None and not look.startswith(("wearing", "in ", "with ", "dressed", "carrying", "holding")):
+        look = f"in {look}"
+    article = "an" if subject[0] in "aeiou" else "a"
+    parts = [f"{article} {subject}"]
+    if look:
+        parts.append(f" {look}")
+    if act:
+        parts.append(f", {act}" if look else f" {act}")
+    return "".join(parts)
+
+
+REFINED_CAPTIONS = Path(__file__).with_name("groot_mot17_combined.json")
+
+
+def load_refined_captions(path: Path = REFINED_CAPTIONS) -> dict[str, str]:
+    """LLM-refined ``combined`` captions keyed by ``video_id`` (empty if the file is missing)."""
+
+    if not path.is_file():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def combined_caption(track: Track, refined: dict[str, str]) -> str | None:
+    if not (track.appearance and track.action):
+        return None
+    return refined.get(track.video_id) or combine_captions(track.appearance, track.action)
 
 
 def collect_tracks(
@@ -126,15 +192,22 @@ def collect_tracks(
     return kept
 
 
-def metadata_rows(tracks: Iterable[Track], config: str) -> list[dict[str, object]]:
+def metadata_rows(
+    tracks: Iterable[Track],
+    config: str,
+    refined: dict[str, str] | None = None,
+) -> list[dict[str, object]]:
     """One row per track; the gallery is identical across configs, captions differ."""
 
     if config not in CONFIGS:
         raise ValueError(f"Unknown GroOT config {config!r}. Use {', '.join(CONFIGS)}.")
+    refined = load_refined_captions() if refined is None else refined
     rows: list[dict[str, object]] = []
     for track in tracks:
         pairs = [("appearance", track.appearance), ("action", track.action)]
-        if config != "all":
+        if config == "combined":
+            pairs = [("combined", combined_caption(track, refined))]
+        elif config != "all":
             pairs = [pair for pair in pairs if pair[0] == config]
         pairs = [(kind, text) for kind, text in pairs if text]
         rows.append(
@@ -311,34 +384,97 @@ tags:
 - text-to-video-retrieval
 - tracklets
 - mot17
+- groot
 pretty_name: GroOT-MOT17 tracklets
+configs:
+- config_name: all
+  data_files: metadata/all-test.jsonl
+- config_name: appearance
+  data_files: metadata/appearance-test.jsonl
+- config_name: action
+  data_files: metadata/action-test.jsonl
+- config_name: combined
+  data_files: metadata/combined-test.jsonl
 ---
 
-# GroOT-MOT17 tracklets (unofficial mirror)
+# GroOT-MOT17 tracklets
 
-Text-to-tracklet retrieval built from the MOT17 subset of **GroOT**
-(Type-to-Track, Nguyen et al., NeurIPS 2023). GroOT attaches two captions to
-every MOT17 track: one describing **appearance** and one describing **action**.
-This mirror crops each captioned track from the MOT17 FRCNN frames into one mp4,
-so it can be evaluated exactly like TVPReid: each caption retrieves its track.
+A text-to-tracklet retrieval benchmark for MOT17 pedestrians. Each captioned
+MOT17 track is cropped into its own short mp4. A text query must retrieve the
+matching track from a gallery of {n_tracks} tracks. The layout is the same as
+[bassatbassat/TVPReid](https://huggingface.co/datasets/bassatbassat/TVPReid), so the
+same evaluation code runs on both.
 
-| Config | Queries | Gallery |
-| --- | --- | --- |
-| `all` | {n_all} | {n_tracks} tracks |
-| `appearance` | {n_app} | {n_tracks} tracks |
-| `action` | {n_act} | {n_tracks} tracks |
+This is an **unofficial derivative**. The videos come from MOT17 and the
+captions come from GroOT. The credit for both belongs to their authors (see
+below). What this repository adds is listed under *Our contribution*.
 
-Built from GroOT `mot17_train_coco.json` (the MOT17 test captions are marked
-sub-optimal by the authors). It is used here only for zero-shot evaluation.
+## Configs
+
+All configs share the same {n_tracks}-track gallery. Only the queries differ.
+
+| Config | Queries | Unique query texts | What a query is |
+| --- | ---: | ---: | --- |
+| `appearance` | {n_app} | {u_app} | GroOT appearance caption, as released |
+| `action` | {n_act} | {u_act} | GroOT action caption, as released |
+| `all` | {n_all} | {u_all} | both of the above |
+| `combined` | {n_comb} | {u_comb} | **one refined sentence per track describing appearance and action** (ours) |
+
+Tracks without a caption of the requested type stay in the gallery as distractors.
+
+**Read the action numbers with care.** GroOT action captions are mostly generic.
+The most common one, "{top_act}", is shared by {top_act_n} tracks. Only
+{u_act} of {n_act} action captions are unique. An action query often matches
+several tracks equally well, yet exactly one counts as correct. The `combined`
+config was made to reduce this ambiguity.
+
+## Original work (credit)
+
+- **Captions:** GroOT, from *Type-to-Track: Retrieve Any Object via Prompt-based
+  Tracking* by Pha Nguyen, Kha Gia Quach, Kris Kitani, and Khoa Luu (NeurIPS 2023).
+  GroOT gives every MOT17 box `captions = [appearance, action]`. We use
+  `mot17_train_coco.json` from
+  [uark-cviu/Type-to-Track](https://github.com/uark-cviu/Type-to-Track). The
+  authors mark the MOT17 test captions as sub-optimal, so we do not use them.
+- **Videos and boxes:** MOT17 / MOT16 by Anton Milan, Laura Leal-Taixé, Ian Reid,
+  Stefan Roth, and Konrad Schindler ([motchallenge.net](https://motchallenge.net)).
+
+The appearance and action captions in this repository are the GroOT captions
+**unchanged**, apart from whitespace trimming and dropping empty or `None` values.
+
+## Our contribution
+
+1. **Tracklet videos.** Each GroOT track is cropped from the MOT17 FRCNN frames into
+   one mp4, so the track itself can be retrieved instead of individual boxes.
+2. **Retrieval splits.** The `appearance`, `action`, `all`, and `combined` query
+   sets share one gallery, in the TVPReid format.
+3. **Refined combined captions (`combined`).** For the {n_comb} tracks that have
+   both captions, the two GroOT captions were merged into one fluent sentence
+   about a single subject. It works in two passes:
+   - A rule-based merge (`combine_captions` in the build code) joins the two
+     captions and keeps the more specific subject ("woman" over "person").
+   - An LLM assistant (Cursor agent, Auto model routing) then reviewed all
+     {n_comb} merged captions one by one. It fixed grammar and articles, removed
+     repeated phrases such as "carrying a bag, walking down the street carrying
+     two bags", and resolved two gender conflicts between a track's appearance
+     and action captions by looking at the frames (MOT17-05 tracks 54 and 59).
+     **No new visual attributes were added.** Every refined caption uses only
+     facts already present in the two GroOT captions.
+
+   The refined captions are versioned in
+   [`groot_mot17_combined.json`]({code_url}/blob/main/shawaf_vlm/data/groot_mot17_combined.json).
+4. **Build code**, so the dataset can be regenerated from the original sources:
+   [`scripts/build_groot_mot17.py`]({code_url}/blob/main/scripts/build_groot_mot17.py).
 
 ## Construction
 
-- Only the FRCNN copy of each sequence is used (DPM / SDP share the same frames).
+- Only the FRCNN copy of each sequence is used, because DPM and SDP share the same frames.
 - Boxes with `ignore=1`, height < {min_height}px, or visibility < {min_visibility} are dropped.
-- Tracks need at least {min_frames} boxes and one non-empty caption. Long tracks
+- Tracks need at least {min_frames} boxes and at least one caption. Long tracks
   are subsampled uniformly to at most {max_frames} boxes.
-- Each box is grown to the track's median aspect ratio (context, not black
-  padding), resized to height {height}, and written at the sequence frame rate.
+- Each box is grown to the track's median aspect ratio, so the extra width is
+  real scene context rather than black padding. It is then resized to height
+  {height} and written at the sequence frame rate.
 
 ## Layout
 
@@ -347,16 +483,46 @@ videos/<MOT17-XX>_t<track>.mp4
 metadata/all-test.jsonl
 metadata/appearance-test.jsonl
 metadata/action-test.jsonl
+metadata/combined-test.jsonl
 ```
 
-Each row: `video_id`, `video`, `captions`, `caption_types`, `subset`, `split`,
-`sequence`, `track_id`, `num_frames`.
+Each row has these fields: `video_id`, `video`, `captions`, `caption_types`,
+`subset`, `split`, `sequence`, `track_id`, `num_frames`.
 
-## License and citation
+## Usage
+
+```python
+# pip install "shawaf-vlm @ git+{code_url}.git"
+from shawaf_vlm.data import load_groot
+
+splits = load_groot("combined")  # downloads the metadata and mp4s on first use
+print(len(splits.query), len(splits.gallery))
+```
+
+Standard protocol: each caption is a query, and its own track is the only
+positive. Report Rank-1/5/10, mAP, and median rank over the whole gallery.
+
+## Intended use and limitations
+
+- Zero-shot evaluation only. There is no train split, and GroOT's MOT17 test
+  captions are not included.
+- Captions describe a single pedestrian in a crowded street, mall, or hallway.
+  Many people wear similar clothes, so some queries are still ambiguous even in
+  `combined` (for example "a person in a black jacket walking on the sidewalk").
+- The `combined` captions are machine-refined. Wording can differ from what a
+  human annotator would write, but the content is limited to the source captions.
+
+## License
 
 GroOT annotations and MOT17 videos are released under
 [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/). This
-mirror keeps that license: non-commercial use, with attribution, share-alike.
+dataset, including the refined captions, keeps that license: non-commercial use,
+with attribution, share-alike.
+
+## Citation
+
+If you use this dataset, cite GroOT and MOT17. If you use the tracklet splits or
+the `combined` captions, please also cite this repository.
 
 ```bibtex
 @article{{nguyen2023type,
@@ -371,18 +537,41 @@ mirror keeps that license: non-commercial use, with attribution, share-alike.
   journal = {{arXiv:1603.00831}},
   year    = {{2016}}
 }}
+@misc{{shawaf_groot_mot17,
+  title        = {{GroOT-MOT17 tracklets: text-to-tracklet retrieval splits with refined combined captions}},
+  howpublished = {{\\url{{https://huggingface.co/datasets/{repo_id}}}}},
+  note         = {{Derived from GroOT (Nguyen et al., 2023) and MOT17. Code: {code_url}}},
+  year         = {{2026}}
+}}
 ```
 """
 
+CODE_URL = "https://github.com/BASSAT-BASSAT/Benchmarking-Video-Image-language-models-for-Tracklet-retrieval-"
 
-def write_dataset_card(tracks: list[Track], out_dir: Path, **settings: object) -> None:
+
+def write_dataset_card(
+    tracks: list[Track],
+    out_dir: Path,
+    repo_id: str = "bassatbassat/GroOT-MOT17",
+    **settings: object,
+) -> None:
     rows = {config: metadata_rows(tracks, config) for config in CONFIGS}
-    counts = {config: sum(len(r["captions"]) for r in rows[config]) for config in CONFIGS}
+    texts = {config: [text for row in rows[config] for text in row["captions"]] for config in CONFIGS}
+    top_act, top_act_n = Counter(text.lower() for text in texts["action"]).most_common(1)[0]
     card = DATASET_CARD.format(
-        n_all=counts["all"],
-        n_app=counts["appearance"],
-        n_act=counts["action"],
         n_tracks=len(tracks),
+        n_all=len(texts["all"]),
+        n_app=len(texts["appearance"]),
+        n_act=len(texts["action"]),
+        n_comb=len(texts["combined"]),
+        u_all=len({t.lower() for t in texts["all"]}),
+        u_app=len({t.lower() for t in texts["appearance"]}),
+        u_act=len({t.lower() for t in texts["action"]}),
+        u_comb=len({t.lower() for t in texts["combined"]}),
+        top_act=top_act,
+        top_act_n=top_act_n,
+        repo_id=repo_id,
+        code_url=CODE_URL,
         **settings,
     )
     (out_dir / "README.md").write_text(card, encoding="utf-8")

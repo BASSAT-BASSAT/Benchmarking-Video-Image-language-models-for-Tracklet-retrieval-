@@ -12,7 +12,7 @@ from shawaf_vlm.data.tv_mars import TVMarsSplits
 
 HF_REPO_ID = "bassatbassat/GroOT-MOT17"
 HF_DATASET_URL = "https://huggingface.co/datasets/bassatbassat/GroOT-MOT17"
-CONFIGS = ("all", "appearance", "action")
+CONFIGS = ("all", "appearance", "action", "combined")
 SPLIT = "test"
 
 

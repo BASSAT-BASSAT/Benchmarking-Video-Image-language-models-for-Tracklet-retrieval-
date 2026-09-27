@@ -88,6 +88,7 @@ def main() -> None:
     write_dataset_card(
         tracks,
         out,
+        repo_id=args.repo_id,
         min_height=int(args.min_height),
         min_visibility=args.min_visibility,
         min_frames=args.min_frames,
@@ -107,7 +108,7 @@ def main() -> None:
             repo_id=args.repo_id,
             repo_type="dataset",
             ignore_patterns=["**/.frames_*/**", ".frames_*/**"],
-            commit_message="Add GroOT-MOT17 tracklet mirror",
+            commit_message="Update GroOT-MOT17 tracklets",
         )
         print(f"Uploaded to https://huggingface.co/datasets/{args.repo_id}", flush=True)
 

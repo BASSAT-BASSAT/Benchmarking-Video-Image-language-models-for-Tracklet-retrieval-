@@ -119,3 +119,6 @@ shawaf-vlm-eval = "shawaf_vlm.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["shawaf_vlm*"]
+
+[tool.setuptools.package-data]
+"shawaf_vlm.data" = ["*.json"]

@@ -10,7 +10,9 @@ from shawaf_vlm.data.groot_build import (
     FrameSource,
     clean_caption,
     collect_tracks,
+    combine_captions,
     expand_box,
+    load_refined_captions,
     metadata_rows,
     write_metadata,
     write_track_videos,
@@ -107,12 +109,39 @@ def test_groot_collect_tracks_filters_and_dedups() -> None:
 
 def test_groot_metadata_configs_share_gallery() -> None:
     tracks = collect_tracks(_groot_coco(), min_height=50, min_frames=8)
-    rows = {config: metadata_rows(tracks, config) for config in ("all", "appearance", "action")}
-    assert [r["video"] for r in rows["all"]] == [r["video"] for r in rows["action"]]
+    rows = {config: metadata_rows(tracks, config, refined={}) for config in ("all", "appearance", "action", "combined")}
+    assert [r["video"] for r in rows["all"]] == [r["video"] for r in rows["combined"]]
     assert sum(len(r["captions"]) for r in rows["all"]) == 3
     assert sum(len(r["captions"]) for r in rows["appearance"]) == 2
     assert rows["action"][0]["caption_types"] == ["action"]
     assert rows["action"][1]["captions"] == []
+    assert rows["combined"][0]["captions"] == ["a man in red shirt, walking"]
+    assert rows["combined"][1]["captions"] == []
+
+
+@pytest.mark.parametrize(
+    ("appearance", "action", "expected"),
+    [
+        ("person wearing black coat", "woman walking on the sidewalk", "a woman wearing black coat, walking on the sidewalk"),
+        ("a young girl wearing pink tshirt", "a young girl walking on the street", "a young girl wearing pink t-shirt, walking on the street"),
+        ("a man in a red sweater.", "a person is standing on the street", "a man in a red sweater, standing on the street"),
+        ("black outfit", "crossing the hallway", "a person in black outfit, crossing the hallway"),
+    ],
+)
+def test_combine_captions(appearance: str, action: str, expected: str) -> None:
+    assert combine_captions(appearance, action) == expected
+
+
+def test_refined_captions_override_rule_merge() -> None:
+    tracks = collect_tracks(_groot_coco(), min_height=50, min_frames=8)
+    rows = metadata_rows(tracks, "combined", refined={"MOT17-02_t0001": "a man in a red shirt walking"})
+    assert rows[0]["captions"] == ["a man in a red shirt walking"]
+
+
+def test_shipped_refined_captions_are_clean() -> None:
+    refined = load_refined_captions()
+    assert len(refined) == 344
+    assert all(text and text == text.strip() and not text.endswith(".") for text in refined.values())
 
 
 def test_expand_box_keeps_aspect_and_clips() -> None:
