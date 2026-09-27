@@ -526,7 +526,7 @@ def test_s2_registry_and_retrieval_json(tmp_path: Path) -> None:
     from shawaf_vlm.models.internvideo2_s2 import unwrap_state_dict
     from shawaf_vlm.models.registry import all_specs
 
-    assert __version__ == "0.1.16"
+    assert __version__ == "0.1.18"
     spec = all_specs()["internvideo2_s2_1b"]
     assert spec.checkpoint == "OpenGVLab/InternVideo2-Stage2_1B-224p-f4"
 

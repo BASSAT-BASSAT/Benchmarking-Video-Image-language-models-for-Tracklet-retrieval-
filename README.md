@@ -50,6 +50,10 @@ Each cell is **Rank-1 / mAP / MdR**.
 
 Text encoding is under a few seconds in every run. IRRA is the accuracy leader and the cheapest of the strong models. Full rows, including Rank-5/10/20/50, nDCG@10, and every pool, are in [`notebooks/kaggle_zero_shot.ipynb`](notebooks/kaggle_zero_shot.ipynb).
 
+### RSTPReid and GroOT-MOT17
+
+The same notebook also benchmarks RSTPReid (2,000 captions, 1,000 single-image tracklets, 200 IDs) and GroOT-MOT17. GroOT-MOT17 has 454 MOT17 tracklets and 798 captions: 344 appearance captions and 454 action captions. Results will be added here after the Kaggle runs. The notebook writes them to `zero_shot_results/tables/report.md`.
+
 ### What the number is averaging
 
 The headline table is **not** one shared mean. It is each model's best Rank-1, and the pool differs.
@@ -189,7 +193,7 @@ Related: [CLIP4Clip](https://arxiv.org/abs/2104.08860), [X-Pool](https://arxiv.o
 ## Extended Colab benchmark
 
 Open `notebooks/colab_extended_zero_shot.ipynb` in Google Colab. It checks out
-`feat/extended-zero-shot-benchmark`, installs the pinned T4 environment,
+`main`, installs the pinned T4 environment,
 downloads only selected TVPReid test subsets, validates the chosen encoder,
 runs PRID `uniform8` first, resumes JSON results, and saves every protocol
 immediately. It contains no pre-filled benchmark scores.
@@ -229,18 +233,39 @@ metrics = evaluate_text_to_tracklet(encoder, splits, num_frames=8)
 
 ## Kaggle
 
-1. Create a notebook with **GPU** and **Internet** on.
-2. Open [`notebooks/kaggle_VLM_eval.ipynb`](notebooks/kaggle_VLM_eval.ipynb) only — do not add extra notebooks.
-3. After any CUDA assert, **Restart session**, then **Run All**. The install cell hard-resets `/kaggle/working/shawaf-vlm` to `origin/main` and must print `shawaf_vlm 0.1.15`.
-4. It downloads only the **test** videos from [bassatbassat/TVPReid](https://huggingface.co/datasets/bassatbassat/TVPReid).
+[`notebooks/kaggle_zero_shot.ipynb`](notebooks/kaggle_zero_shot.ipynb) is the one multi-dataset zero-shot benchmark.
 
-The notebook `pip install -e ".[all]"` and **imports** `shawaf_vlm` — it does not reimplement the eval loop.
+1. Create a notebook with a **T4 GPU** and **Internet** on. Add the Hugging Face token as the Kaggle secret `hugging_face` (only InternVideo2-1B-s2 needs it).
+2. Set `ENV_GROUP` in the configuration cell and **Run All**. Run each group in its own session, because the groups pin different `transformers` versions:
+   - `base`: SigLIP 2, Perception Encoder, IRRA, InternVideo2-1B-s2, X-CLIP, LanguageBind, InternVideo2 CLIP-S
+   - `extended_modern`: OpenAI CLIP ViT-L/14, Jina CLIP v2, Qwen3-VL-Embedding-2B
+   - `extended_gme`: GME-Qwen2-VL-2B
+3. The install cell hard-resets `/kaggle/working/shawaf-vlm` to `origin/main` and must print `shawaf_vlm 0.1.18`. If it asks for a restart, use **Restart session**, then **Run All** again.
+4. `RUN_DATASETS` picks the datasets:
+
+| Dataset | Type | Source in the notebook |
+|---|---|---|
+| TVPReid (PRID / iLIDS / Duke) | video tracklets | [bassatbassat/TVPReid](https://huggingface.co/datasets/bassatbassat/TVPReid), test videos only |
+| RSTPReid | one image per tracklet | Google Drive via `gdown` (MSMT17 license forbids re-hosting) |
+| GroOT-MOT17 (`all` / `appearance` / `action`) | video tracklets | [bassatbassat/GroOT-MOT17](https://huggingface.co/datasets/bassatbassat/GroOT-MOT17) |
+
+Each result is saved as JSON right away under `zero_shot_results/<ENV_GROUP>/<dataset>/`. Finished rows are skipped when you rerun. The table cells merge every group, plus any earlier `zero_shot_results` you attach as a Kaggle input. They show the leaderboard, a cross-dataset Rank-1 matrix, pool comparisons, the GroOT appearance-vs-action gap, and speed/GPU. They also write CSVs and `report.md` to `zero_shot_results/tables/`.
+
+The notebook runs `pip install -e ".[all]"` and **imports** `shawaf_vlm`. It does not reimplement the eval loop.
+
+GroOT-MOT17 was built once from MOT17 train (FRCNN copy) and the [GroOT](https://github.com/uark-cviu/GroOT) captions:
+
+```bash
+python scripts/build_groot_mot17.py --out build/GroOT-MOT17 --upload
+```
+
+Both sources are CC BY-NC-SA 3.0, so the Hugging Face copy is under the same license.
 
 ```bash
 git clone --depth 1 https://github.com/BASSAT-BASSAT/Benchmarking-Video-Image-language-models-for-Tracklet-retrieval-.git
 ```
 
-Environment overrides: `SHAWAF_TVPREID_ROOT`, `SHAWAF_MARS_ROOT`, `SHAWAF_TV_MARS_ANN`.
+Environment overrides: `SHAWAF_TVPREID_ROOT`, `SHAWAF_RSTPREID_ROOT`, `SHAWAF_GROOT_ROOT`, `SHAWAF_MARS_ROOT`, `SHAWAF_TV_MARS_ANN`.
 
 ## What is intentionally not here
 
