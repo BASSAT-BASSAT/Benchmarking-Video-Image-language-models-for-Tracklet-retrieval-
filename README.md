@@ -18,95 +18,61 @@ Tracklet  ──► VLM video encoder ──► video vector
                               Rank-1 / 5 / 10 / 20 / 50, mAP, MdR, MnR, nDCG@10, mINP
 ```
 
-## Zero-shot TVPReid results
+## Results — frozen models, no training
 
-Tesla T4, test split, both captions used as queries. Each number is that model's best Rank-1 on the subset. Peak GPU and milliseconds per clip stay about the same for every protocol; the Duke video time is the wall clock of the run that produced that model's best Duke Rank-1.
+All models are tested as-is on the test splits. Each text description queries the gallery, and a hit counts when the returned tracklet shows the same person. Numbers below are Rank-1 for each model's best temporal setting — how the 8-frame clips are sampled and averaged matters a little, but it never changes the ranking.
 
-### Rank-1 / mAP / median rank
+### TVPReid: describing a person finds their tracklet
+
+PRID is the easiest set, iLIDS the hardest (only 75 galleries, cluttered airport halls), Duke the largest (603 tracklets). IRRA wins everywhere by a wide margin because it was designed for text-to-person retrieval. Among general vision-language models, Perception Encoder is strongest on PRID while SigLIP 2 holds up best on Duke. Pure video models — X-CLIP, LanguageBind, InternVideo2 — lag far behind on this task.
 
 | Model | PRID | iLIDS | Duke |
 |---|---:|---:|---:|
-| IRRA | **66.55** / 76.09 / 1 | **30.00** / 41.27 / 5 | **38.06** / 50.79 / 2 |
+| IRRA | **66.55** / 76.09 / 1 | **30.00** / 41.29 / 5 | **38.06** / 50.79 / 2 |
 | Perception Encoder L/14 | 38.38 / 52.04 / 2 | 19.33 / 32.55 / 6 | 17.66 / 28.12 / 11 |
 | SigLIP 2 So400m | 35.56 / 50.84 / 3 | 18.67 / 28.88 / 10 | 21.97 / 33.03 / 7 |
 | InternVideo2 CLIP-S | 32.39 / 43.77 / 4 | 13.33 / 24.14 / 11.5 | 18.49 / 28.36 / 12 |
 | LanguageBind | 16.20 / 24.82 / 16 | 12.67 / 22.09 / 14 | 7.30 / 14.46 / 40.5 |
 | X-CLIP | 4.93 / 10.05 / 43.5 | 5.33 / 10.52 / 38.5 | 1.41 / 3.95 / 164 |
-| InternVideo2-1B-s2 | 4.23 / 10.78 / 34.5 | 4.00 / 10.26 / 29 | 1.82 / 3.82 / 159 |
+| InternVideo2-1B-s2 | 4.23 / 10.78 / 34.5 | 4.00 / 10.26 / 29 | 1.82 / 4.15 / 159 |
 
-Each cell is **Rank-1 / mAP / MdR**.
+Each cell is **Rank-1 / mAP / median rank**.
 
-### Setting, speed, and GPU
+IRRA is also the cheapest of the accurate models at ~34 ms per clip and 0.31 GB on a T4. Perception Encoder (~249 ms, 1.32 GB) and SigLIP 2 (~437 ms, 2.23 GB) cost 7–12× more compute and still trail by ~28 points on PRID. X-CLIP is equally fast but not competitive on accuracy. In practice: a single 8-frame clip is enough on PRID, while Duke benefits from scoring several sliding windows and keeping the best-matching one.
 
-| Model | Best setting | ms / clip | Peak GPU | Duke video encode |
-|---|---|---:|---:|---:|
-| IRRA | PRID 8 fps `mean_s8`; iLIDS 2 fps `mean`; Duke 8 fps `query_max` | 34 | 0.31 GB | 4.8 min |
-| Perception Encoder L/14 | PRID 8 fps `mean_s8`; iLIDS and Duke 8 fps `query_max` | 238 | 1.32 GB | 33.8 min |
-| SigLIP 2 So400m | 8 fps `query_max` on all three subsets | 421 | 2.23 GB | 59.8 min |
-| InternVideo2 CLIP-S | PRID 2 fps `max`; iLIDS and Duke 8 fps `query_max` | 354 | 1.54 GB | 50.2 min |
-| LanguageBind | PRID 2 fps `mean`; iLIDS and Duke 8 fps `mean` | 192 | 1.22 GB | 27.2 min |
-| X-CLIP | PRID and Duke 8 fps `mean`; iLIDS 2 fps `mean` | 30 | 0.45 GB | 4.2 min |
-| InternVideo2-1B-s2 | PRID uniform 4; iLIDS 2 fps `query_max`; Duke 1 fps `mean_s8` | 262 | 2.81 GB | 6.9 min |
+### RSTPReid: same task on still images
 
-Text encoding is under a few seconds in every run. IRRA is the accuracy leader and the cheapest of the strong models. Full rows, including Rank-5/10/20/50, nDCG@10, and every pool, are in [`notebooks/kaggle_zero_shot.ipynb`](notebooks/kaggle_zero_shot.ipynb).
+2,000 descriptions against 1,000 still images from 200 identities (5 images per person, so mAP is naturally lower than Rank-1). The order is familiar — IRRA first — but still images reshuffle the middle: SigLIP 2 (41.00) passes Perception Encoder (37.40), its image pretraining paying off when there is no motion to aggregate.
 
-### RSTPReid and GroOT-MOT17
+| Model | Rank-1 / mAP |
+|---|---:|
+| IRRA | **53.30** / 39.71 |
+| SigLIP 2 So400m | 41.00 / 29.34 |
+| Perception Encoder L/14 | 37.40 / 29.09 |
+| InternVideo2 CLIP-S | 27.00 / 21.34 |
+| LanguageBind | 15.55 / 11.36 |
+| InternVideo2-1B-s2 | 5.15 / 4.53 |
+| X-CLIP | 1.40 / 2.26 |
 
-The same notebook also benchmarks RSTPReid (2,000 captions, 1,000 single-image tracklets, 200 IDs) and GroOT-MOT17. GroOT-MOT17 has 454 MOT17 tracklets and 798 GroOT captions: 344 appearance captions and 454 action captions. It also has our `combined` query set: one refined sentence per track that describes both appearance and action, for the 344 tracks that have both captions.
+### GroOT-MOT17: clothes are searchable, actions are not
 
-The action captions are mostly generic. Only 112 of the 454 are unique, and "a person walking on the street" alone covers 78 tracks. That makes `action` Rank-1 a measure of caption ambiguity more than of the model. The `combined` captions start from a rule-based merge (`combine_captions`). An LLM assistant in Cursor then reviewed all 344 one by one: it fixed grammar and duplicated phrases, and it resolved two gender conflicts by checking the frames. It added no new attributes. They are stored in [`shawaf_vlm/data/groot_mot17_combined.json`](shawaf_vlm/data/groot_mot17_combined.json).
+454 street tracks queried three ways: what the person wears (`appearance`, 344 queries), what they do (`action`, 454 queries), and a cleaned one-sentence mix of both (`combined`, 344 queries). Appearance separates people; action does not — only 112 of the 454 action captions are unique, and "a person walking on the street" alone matches 78 tracks. So every model scores 1–3% Rank-1 on action. That is a dataset ceiling, not a model bug.
 
-Results will be added here after the Kaggle runs. The notebook writes them to `zero_shot_results/tables/report.md`.
+Adding appearance back fixes it: the combined sentence beats appearance alone by 2–5 points for every serious model, reaching 29.36 for both IRRA and Perception Encoder.
 
-### What the number is averaging
+| Model | appearance | action | combined |
+|---|---:|---:|---:|
+| Perception Encoder L/14 | 25.29 | **3.30** | **29.36** |
+| IRRA | 24.71 | 2.20 | **29.36** |
+| SigLIP 2 So400m | **25.58** | 2.20 | 27.91 |
+| InternVideo2 CLIP-S | 19.19 | 2.64 | 24.71 |
+| LanguageBind | 14.83 | 2.20 | 16.28 |
+| X-CLIP | 2.62 | 0.44 | 2.91 |
+| InternVideo2-1B-s2 | 0.87 | 0.66 | 1.45 |
 
-The headline table is **not** one shared mean. It is each model's best Rank-1, and the pool differs.
+Takeaway: current frozen models match clothing well, ignore generic motion, and do best when the query mentions both. The `combined` queries were built by rule-merging each track's two captions, then hand-checking all 344 for grammar and two gender conflicts (no new attributes added). See [`shawaf_vlm/data/groot_mot17_combined.json`](shawaf_vlm/data/groot_mot17_combined.json).
 
-IRRA, Perception Encoder, and SigLIP 2 embed every frame on its own and **average the frames inside each 8-frame clip**. After that, a second pool merges the clips:
-
-| Pool | What it does |
-|---|---|
-| one clip (`uniform8`) | 8 frames spread over the tracklet, averaged into one vector |
-| `mean` | average every clip vector |
-| `mean_s8` | average every other clip (about stride 8) |
-| `max` | keep the strongest value in each dimension |
-| `query_max` | score each clip against the caption and keep the best clip |
-
-At 1 fps a tracklet often has only one clip, so `mean` and `mean_s8` match. Rank-1 below.
-
-### IRRA Rank-1 by protocol
-
-| Sampling | Pool | PRID | iLIDS | Duke |
-|---|---|---:|---:|---:|
-| 8 frames, one clip | frame average | 65.49 | 28.00 | 35.82 |
-| 1 fps, 12-frame cap | mean | 63.03 | 27.33 | 35.66 |
-| 1 fps, 12-frame cap | max | 63.38 | 27.33 | 35.57 |
-| 1 fps, 12-frame cap | query_max | 63.03 | 27.33 | 35.90 |
-| 2 fps, 32-frame cap | mean | 62.32 | **30.00** | 36.65 |
-| 2 fps, 32-frame cap | max | 62.68 | 29.33 | 34.08 |
-| 2 fps, 32-frame cap | query_max | 62.68 | 28.67 | 37.73 |
-| 8 fps, 64-frame cap | mean | 65.85 | 27.33 | 36.07 |
-| 8 fps, 64-frame cap | mean_s8 | **66.55** | 26.00 | 36.65 |
-| 8 fps, 64-frame cap | max | 65.14 | 26.00 | 32.34 |
-| 8 fps, 64-frame cap | query_max | 65.14 | 28.00 | **38.06** |
-
-On PRID every IRRA protocol is within about 4 points, and median rank stays 1. Duke is where `query_max` pulls ahead of a plain average.
-
-### Top three, Rank-1 by sampling
-
-`mean` is the average of clip vectors. `query_max` keeps the clip that best matches the caption.
-
-| Model | Subset | One clip | 1 fps mean | 2 fps mean | 8 fps mean | 8 fps query_max |
-|---|---|---:|---:|---:|---:|---:|
-| IRRA | PRID | 65.49 | 63.03 | 62.32 | 65.85 | 65.14 |
-| IRRA | iLIDS | 28.00 | 27.33 | 30.00 | 27.33 | 28.00 |
-| IRRA | Duke | 35.82 | 35.66 | 36.65 | 36.07 | 38.06 |
-| Perception Encoder | PRID | 38.03 | 35.56 | 34.15 | 38.03 | 35.56 |
-| Perception Encoder | iLIDS | 18.00 | 16.67 | 19.33 | 18.00 | 19.33 |
-| Perception Encoder | Duke | 14.84 | 14.01 | 13.76 | 15.01 | 17.66 |
-| SigLIP 2 | PRID | 33.45 | 32.75 | 32.75 | 32.04 | 35.56 |
-| SigLIP 2 | iLIDS | 14.67 | 17.33 | 16.00 | 16.67 | 18.67 |
-| SigLIP 2 | Duke | 17.58 | 18.16 | 19.98 | 19.40 | 21.97 |
+Full per-protocol numbers, Rank-5/10/20/50, nDCG, and timing breakdowns are in [`notebooks/kaggle-zero-shot.ipynb`](notebooks/kaggle-zero-shot.ipynb).
 
 ## Install
 
@@ -237,7 +203,7 @@ metrics = evaluate_text_to_tracklet(encoder, splits, num_frames=8)
 
 ## Kaggle
 
-[`notebooks/kaggle_zero_shot.ipynb`](notebooks/kaggle_zero_shot.ipynb) is the one multi-dataset zero-shot benchmark.
+[`notebooks/kaggle-zero-shot.ipynb`](notebooks/kaggle-zero-shot.ipynb) is the one multi-dataset zero-shot benchmark.
 
 1. Create a notebook with a **T4 GPU** and **Internet** on. Add the Hugging Face token as the Kaggle secret `hugging_face` (only InternVideo2-1B-s2 needs it).
 2. Set `ENV_GROUP` in the configuration cell and **Run All**. Run each group in its own session, because the groups pin different `transformers` versions:
