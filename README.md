@@ -186,6 +186,49 @@ operate on its clip embeddings.
 
 Related: [CLIP4Clip](https://arxiv.org/abs/2104.08860), [X-Pool](https://arxiv.org/abs/2203.15086), [TVPR](https://arxiv.org/abs/2307.07184).
 
+## Extended Zero-Shot Text-to-Tracklet Benchmark
+
+This checkpoint evaluates four frozen encoders on zero-shot text-to-tracklet
+retrieval with no Re-ID fusion and no fine-tuning. It contains 156 completed
+results: 4 models × 3 datasets × 13 configurations. The datasets are PRID,
+iLIDS, and Duke.
+
+Each model/dataset pair includes `uniform8` plus the `vt_1fps_n12`,
+`vt_2fps_n32`, and `reid_8fps_n64` protocols with the applicable `mean`,
+`mean_s8`, `max`, and `query_max` pools. Here, `query_max` is the repository's
+pooling strategy used for this benchmark; it is not an implementation of
+official X-Pool.
+
+The table reports the best observed configuration for each model/dataset pair.
+Rows are selected by highest Rank-1, then mAP, then nDCG@10, with CSV order as
+the final deterministic tie-breaker. Every value in a table row comes from the
+same result row.
+
+| Model | Dataset | Rank-1 | mAP | nDCG@10 | Best Protocol | Pool | Video ms/item | Peak GPU GB |
+|---|---|---:|---:|---:|---|---|---:|---:|
+| OpenAI CLIP ViT-L/14 | PRID | 10.92 | 20.06 | 22.72 | `uniform8` | `none` | 132.53 | 0.92 |
+| OpenAI CLIP ViT-L/14 | iLIDS | 9.33 | 17.48 | 18.19 | `vt_1fps_n12` | `max` | 96.95 | 0.92 |
+| OpenAI CLIP ViT-L/14 | Duke | 5.14 | 10.12 | 10.74 | `vt_1fps_n12` | `query_max` | 107.42 | 0.92 |
+| Jina CLIP v2 | PRID | 7.75 | 14.41 | 15.76 | `vt_1fps_n12` | `mean` | 1281.34 | 4.19 |
+| Jina CLIP v2 | iLIDS | 11.33 | 19.47 | 21.24 | `reid_8fps_n64` | `query_max` | 1284.85 | 2.58 |
+| Jina CLIP v2 | Duke | 4.15 | 9.80 | 11.03 | `reid_8fps_n64` | `query_max` | 1352.50 | 2.58 |
+| GME-Qwen2-VL-2B | PRID | 11.62 | 22.96 | 26.36 | `reid_8fps_n64` | `max` | 1681.47 | 8.35 |
+| GME-Qwen2-VL-2B | iLIDS | 10.67 | 20.14 | 22.48 | `vt_2fps_n32` | `query_max` | 1657.36 | 4.21 |
+| GME-Qwen2-VL-2B | Duke | 9.45 | 17.70 | 20.48 | `reid_8fps_n64` | `query_max` | 1909.83 | 4.26 |
+| Qwen3-VL-Embedding-2B | PRID | 24.65 | 37.00 | 41.51 | `reid_8fps_n64` | `query_max` | 337.56 | 4.07 |
+| Qwen3-VL-Embedding-2B | iLIDS | 11.33 | 21.37 | 24.02 | `reid_8fps_n64` | `mean_s8` | 329.77 | 4.07 |
+| Qwen3-VL-Embedding-2B | Duke | 13.18 | 22.72 | 26.11 | `reid_8fps_n64` | `query_max` | 335.74 | 4.07 |
+
+The frozen checkpoint with all configurations and unrounded metrics is
+[`results/checkpoints/extended_zero_shot_4models_3datasets_v1.csv`](results/checkpoints/extended_zero_shot_4models_3datasets_v1.csv).
+
+Reproduction uses two dependency profiles:
+
+- **MODERN:** OpenAI CLIP ViT-L/14, Jina CLIP v2, and
+  Qwen3-VL-Embedding-2B with Transformers 4.57.3.
+- **GME:** GME-Qwen2-VL-2B with Transformers 4.51.3. GME requires this
+  separate Transformers-compatible runtime.
+
 ## Extended Colab benchmark
 
 Open `notebooks/colab_extended_zero_shot.ipynb` in Google Colab. It checks out
