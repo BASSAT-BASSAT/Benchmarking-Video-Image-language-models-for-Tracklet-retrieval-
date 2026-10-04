@@ -20,29 +20,38 @@ Tracklet  ──► VLM video encoder ──► video vector
 
 ## Results — frozen models, no training
 
-All models are tested as-is on the test splits. Each text description queries the gallery, and a hit counts when the returned tracklet shows the same person. Numbers below are Rank-1 for each model's best temporal setting — how the 8-frame clips are sampled and averaged matters a little, but it never changes the ranking.
+All models are tested as-is on the test splits. Each text description queries the gallery, and a hit counts when the returned tracklet shows the same person. Numbers below are Rank-1 for each model's best temporal setting — how the 8-frame clips are sampled and averaged matters a little, but it never changes the ranking. Ten models ran on a Kaggle T4 across two environment groups: `base` (IRRA, SigLIP 2, Perception Encoder, InternVideo2 CLIP-S, InternVideo2-1B-s2, X-CLIP, LanguageBind) and `extended_modern` (OpenAI CLIP L/14, Jina CLIP v2, Qwen3-VL-Embedding-2B).
+
+![Rank-1 on every test set](assets/rank1_heatmap.png)
 
 ### TVPReid: describing a person finds their tracklet
 
-PRID is the easiest set, iLIDS the hardest (only 75 galleries, cluttered airport halls), Duke the largest (603 tracklets). IRRA wins everywhere by a wide margin because it was designed for text-to-person retrieval. Among general vision-language models, Perception Encoder is strongest on PRID while SigLIP 2 holds up best on Duke. Pure video models — X-CLIP, LanguageBind, InternVideo2 — lag far behind on this task.
+PRID is the easiest set, iLIDS the hardest (only 75 galleries, cluttered airport halls), Duke the largest (603 tracklets). IRRA wins everywhere by a wide margin because it was designed for text-to-person retrieval. Among general vision-language models, Perception Encoder is strongest on PRID while SigLIP 2 holds up best on Duke. Pure video models — X-CLIP, LanguageBind, InternVideo2 — lag far behind on this task. The `extended_modern` trio lands mid-pack: Qwen3-VL-Embedding beats LanguageBind on PRID and Duke, while OpenAI CLIP L/14 and Jina CLIP v2 barely clear single digits.
 
 | Model | PRID | iLIDS | Duke |
 |---|---:|---:|---:|
-| IRRA | **66.55** / 76.09 / 1 | **30.00** / 41.29 / 5 | **38.06** / 50.79 / 2 |
-| Perception Encoder L/14 | 38.38 / 52.04 / 2 | 19.33 / 32.55 / 6 | 17.66 / 28.12 / 11 |
-| SigLIP 2 So400m | 35.56 / 50.84 / 3 | 18.67 / 28.88 / 10 | 21.97 / 33.03 / 7 |
-| InternVideo2 CLIP-S | 32.39 / 43.77 / 4 | 13.33 / 24.14 / 11.5 | 18.49 / 28.36 / 12 |
-| LanguageBind | 16.20 / 24.82 / 16 | 12.67 / 22.09 / 14 | 7.30 / 14.46 / 40.5 |
-| X-CLIP | 4.93 / 10.05 / 43.5 | 5.33 / 10.52 / 38.5 | 1.41 / 3.95 / 164 |
-| InternVideo2-1B-s2 | 4.23 / 10.78 / 34.5 | 4.00 / 10.26 / 29 | 1.82 / 4.15 / 159 |
+| IRRA | **66.55** / 76.09 | **30.00** / 41.29 | **38.06** / 50.79 |
+| SigLIP 2 So400m | 35.56 / 50.84 | 18.67 / 28.88 | 21.97 / 33.03 |
+| Perception Encoder L/14 | 38.38 / 52.04 | 19.33 / 32.55 | 17.66 / 28.12 |
+| InternVideo2 CLIP-S | 32.39 / 43.77 | 13.33 / 24.14 | 18.49 / 28.36 |
+| Qwen3-VL-Embedding-2B | 24.65 / 36.99 | 11.33 / 21.37 | 13.18 / 22.73 |
+| LanguageBind | 16.20 / 24.82 | 12.67 / 22.09 | 7.30 / 14.46 |
+| OpenAI CLIP L/14 | 10.92 / 20.05 | 9.33 / 17.48 | 5.14 / 10.10 |
+| Jina CLIP v2 | 7.75 / 14.41 | 11.33 / 19.47 | 4.15 / 9.80 |
+| X-CLIP | 4.93 / 10.05 | 5.33 / 10.52 | 1.41 / 3.95 |
+| InternVideo2-1B-s2 | 4.23 / 10.78 | 4.00 / 10.26 | 1.82 / 4.15 |
 
-Each cell is **Rank-1 / mAP / median rank**.
+Each cell is **Rank-1 / mAP**. Median rank, Rank-5/10/20/50, nDCG@10, and every protocol × pool combination are in the executed notebook.
 
 IRRA is also the cheapest of the accurate models at ~34 ms per clip and 0.31 GB on a T4. Perception Encoder (~249 ms, 1.32 GB) and SigLIP 2 (~437 ms, 2.23 GB) cost 7–12× more compute and still trail by ~28 points on PRID. X-CLIP is equally fast but not competitive on accuracy. In practice: a single 8-frame clip is enough on PRID, while Duke benefits from scoring several sliding windows and keeping the best-matching one.
 
+The three `extended_modern` models are no faster despite being newer: OpenAI CLIP L/14 is the cheapest at ~106 ms, Qwen3-VL-Embedding-2B sits at ~343 ms (2.1 GB), and Jina CLIP v2 is by far the most expensive at ~1,329 ms per clip — its 44-layer tower plus Matryoshka 1024-d truncation costs 4–40× more than every other model here. None of them beats the task-tuned baselines anywhere.
+
+![Cost vs accuracy](assets/speed_accuracy.png)
+
 ### RSTPReid: same task on still images
 
-2,000 descriptions against 1,000 still images from 200 identities (5 images per person, so mAP is naturally lower than Rank-1). The order is familiar — IRRA first — but still images reshuffle the middle: SigLIP 2 (41.00) passes Perception Encoder (37.40), its image pretraining paying off when there is no motion to aggregate.
+2,000 descriptions against 1,000 still images from 200 identities (5 images per person, so mAP is naturally lower than Rank-1). The order is familiar — IRRA first — but still images reshuffle the middle: SigLIP 2 (41.00) passes Perception Encoder (37.40), its image pretraining paying off when there is no motion to aggregate. Qwen3-VL-Embedding (30.05) is the one `extended_modern` model that climbs, passing InternVideo2 CLIP-S.
 
 | Model | Rank-1 / mAP |
 |---|---:|
@@ -50,7 +59,10 @@ IRRA is also the cheapest of the accurate models at ~34 ms per clip and 0.31 GB 
 | SigLIP 2 So400m | 41.00 / 29.34 |
 | Perception Encoder L/14 | 37.40 / 29.09 |
 | InternVideo2 CLIP-S | 27.00 / 21.34 |
+| Qwen3-VL-Embedding-2B | 30.05 / 21.72 |
 | LanguageBind | 15.55 / 11.36 |
+| Jina CLIP v2 | 12.15 / 9.64 |
+| OpenAI CLIP L/14 | 11.05 / 8.21 |
 | InternVideo2-1B-s2 | 5.15 / 4.53 |
 | X-CLIP | 1.40 / 2.26 |
 
@@ -60,17 +72,22 @@ IRRA is also the cheapest of the accurate models at ~34 ms per clip and 0.31 GB 
 
 Adding appearance back fixes it: the combined sentence beats appearance alone by 2–5 points for every serious model, reaching 29.36 for both IRRA and Perception Encoder.
 
+![GroOT-MOT17 appearance vs action vs combined](assets/groot_caption_types.png)
+
 | Model | appearance | action | combined |
 |---|---:|---:|---:|
-| Perception Encoder L/14 | 25.29 | **3.30** | **29.36** |
+| Perception Encoder L/14 | 25.29 | 3.30 | **29.36** |
 | IRRA | 24.71 | 2.20 | **29.36** |
 | SigLIP 2 So400m | **25.58** | 2.20 | 27.91 |
 | InternVideo2 CLIP-S | 19.19 | 2.64 | 24.71 |
+| Qwen3-VL-Embedding-2B | 20.06 | **3.52** | 22.38 |
 | LanguageBind | 14.83 | 2.20 | 16.28 |
+| OpenAI CLIP L/14 | 11.92 | 1.76 | 10.17 |
+| Jina CLIP v2 | 11.92 | 1.32 | 8.14 |
 | X-CLIP | 2.62 | 0.44 | 2.91 |
 | InternVideo2-1B-s2 | 0.87 | 0.66 | 1.45 |
 
-Takeaway: current frozen models match clothing well, ignore generic motion, and do best when the query mentions both. The `combined` queries were built by rule-merging each track's two captions, then hand-checking all 344 for grammar and two gender conflicts (no new attributes added). See [`shawaf_vlm/data/groot_mot17_combined.json`](shawaf_vlm/data/groot_mot17_combined.json).
+Takeaway: current frozen models match clothing well, ignore generic motion, and do best when the query mentions both. Qwen3-VL-Embedding is a partial exception on motion: its 3.52 on action is the best of all ten models, hinting that video-native pretraining helps even where captions are ambiguous. The `combined` queries were built by rule-merging each track's two captions, then hand-checking all 344 for grammar and two gender conflicts (no new attributes added). See [`shawaf_vlm/data/groot_mot17_combined.json`](shawaf_vlm/data/groot_mot17_combined.json).
 
 Full per-protocol numbers, Rank-5/10/20/50, nDCG, and timing breakdowns are in [`notebooks/kaggle-zero-shot.ipynb`](notebooks/kaggle-zero-shot.ipynb).
 
