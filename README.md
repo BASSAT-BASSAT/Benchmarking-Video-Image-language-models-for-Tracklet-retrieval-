@@ -20,13 +20,13 @@ Tracklet  ──► VLM video encoder ──► video vector
 
 ## Results — frozen models, no training
 
-All models are tested as-is on the test splits. Each text description queries the gallery, and a hit counts when the returned tracklet shows the same person. Numbers below are Rank-1 for each model's best temporal setting — how the 8-frame clips are sampled and averaged matters a little, but it never changes the ranking. Ten models ran on a Kaggle T4 across two environment groups: `base` (IRRA, SigLIP 2, Perception Encoder, InternVideo2 CLIP-S, InternVideo2-1B-s2, X-CLIP, LanguageBind) and `extended_modern` (OpenAI CLIP L/14, Jina CLIP v2, Qwen3-VL-Embedding-2B).
+All models are tested as-is on the test splits. Each text description queries the gallery, and a hit counts when the returned tracklet shows the same person. Numbers below are Rank-1 for each model's best temporal setting — how the 8-frame clips are sampled and averaged matters a little, but it never changes the ranking. Eleven models ran on a Kaggle/Colab T4 across three environment groups: `base` (IRRA, SigLIP 2, Perception Encoder, InternVideo2 CLIP-S, InternVideo2-1B-s2, X-CLIP, LanguageBind), `extended_modern` (OpenAI CLIP L/14, Jina CLIP v2, Qwen3-VL-Embedding-2B), and `extended_gme` (GME-Qwen2-VL-2B, TVPReid only — it needs its own `transformers` version, so it has not been run on RSTPReid or GroOT yet; see the [checkpoint section](#extended-zero-shot-checkpoint--all-156-configurations) below).
 
 ![Rank-1 on every test set](assets/rank1_heatmap.png)
 
 ### TVPReid: describing a person finds their tracklet
 
-PRID is the easiest set, iLIDS the hardest (only 75 galleries, cluttered airport halls), Duke the largest (603 tracklets). IRRA wins everywhere by a wide margin because it was designed for text-to-person retrieval. Among general vision-language models, Perception Encoder is strongest on PRID while SigLIP 2 holds up best on Duke. Pure video models — X-CLIP, LanguageBind, InternVideo2 — lag far behind on this task. The `extended_modern` trio lands mid-pack: Qwen3-VL-Embedding beats LanguageBind on PRID and Duke, while OpenAI CLIP L/14 and Jina CLIP v2 barely clear single digits.
+PRID is the easiest set, iLIDS the hardest (only 75 galleries, cluttered airport halls), Duke the largest (603 tracklets). IRRA wins everywhere by a wide margin because it was designed for text-to-person retrieval. Among general vision-language models, Perception Encoder is strongest on PRID while SigLIP 2 holds up best on Duke. Pure video models — X-CLIP, LanguageBind, InternVideo2 — lag far behind on this task. The `extended` models land mid-pack: Qwen3-VL-Embedding beats LanguageBind on PRID and Duke, GME-Qwen2-VL beats it on Duke, while OpenAI CLIP L/14 and Jina CLIP v2 sit at or below ten points everywhere.
 
 | Model | PRID | iLIDS | Duke |
 |---|---:|---:|---:|
@@ -36,6 +36,7 @@ PRID is the easiest set, iLIDS the hardest (only 75 galleries, cluttered airport
 | InternVideo2 CLIP-S | 32.39 / 43.77 | 13.33 / 24.14 | 18.49 / 28.36 |
 | Qwen3-VL-Embedding-2B | 24.65 / 36.99 | 11.33 / 21.37 | 13.18 / 22.73 |
 | LanguageBind | 16.20 / 24.82 | 12.67 / 22.09 | 7.30 / 14.46 |
+| GME-Qwen2-VL-2B | 11.62 / 22.96 | 10.67 / 20.14 | 9.45 / 17.70 |
 | OpenAI CLIP L/14 | 10.92 / 20.05 | 9.33 / 17.48 | 5.14 / 10.10 |
 | Jina CLIP v2 | 7.75 / 14.41 | 11.33 / 19.47 | 4.15 / 9.80 |
 | X-CLIP | 4.93 / 10.05 | 5.33 / 10.52 | 1.41 / 3.95 |
@@ -45,7 +46,7 @@ Each cell is **Rank-1 / mAP**. Median rank, Rank-5/10/20/50, nDCG@10, and every 
 
 IRRA is also the cheapest of the accurate models at ~34 ms per clip and 0.31 GB on a T4. Perception Encoder (~249 ms, 1.32 GB) and SigLIP 2 (~437 ms, 2.23 GB) cost 7–12× more compute and still trail by ~28 points on PRID. X-CLIP is equally fast but not competitive on accuracy. In practice: a single 8-frame clip is enough on PRID, while Duke benefits from scoring several sliding windows and keeping the best-matching one.
 
-The three `extended_modern` models are no faster despite being newer: OpenAI CLIP L/14 is the cheapest at ~106 ms, Qwen3-VL-Embedding-2B sits at ~343 ms (2.1 GB), and Jina CLIP v2 is by far the most expensive at ~1,329 ms per clip — its 44-layer tower plus Matryoshka 1024-d truncation costs 4–40× more than every other model here. None of them beats the task-tuned baselines anywhere.
+The `extended` models are no faster despite being newer: OpenAI CLIP L/14 is the cheapest at ~106 ms, Qwen3-VL-Embedding-2B sits at ~343 ms (2.1 GB), Jina CLIP v2 at ~1,329 ms, and GME-Qwen2-VL-2B is the slowest and heaviest of all at ~1,750 ms per clip and 4.2–8.3 GB. GME is the second-strongest extended model — it beats OpenAI CLIP and Jina on PRID and Duke — but it needs ~5× Qwen3's compute to get there. None of the extended models beats the task-tuned baselines anywhere.
 
 ![Cost vs accuracy](assets/speed_accuracy.png)
 
@@ -87,7 +88,7 @@ Adding appearance back fixes it: the combined sentence beats appearance alone by
 | X-CLIP | 2.62 | 0.44 | 2.91 |
 | InternVideo2-1B-s2 | 0.87 | 0.66 | 1.45 |
 
-Takeaway: current frozen models match clothing well, ignore generic motion, and do best when the query mentions both. Qwen3-VL-Embedding is a partial exception on motion: its 3.52 on action is the best of all ten models, hinting that video-native pretraining helps even where captions are ambiguous. The `combined` queries were built by rule-merging each track's two captions, then hand-checking all 344 for grammar and two gender conflicts (no new attributes added). See [`shawaf_vlm/data/groot_mot17_combined.json`](shawaf_vlm/data/groot_mot17_combined.json).
+Takeaway: current frozen models match clothing well, ignore generic motion, and do best when the query mentions both. Qwen3-VL-Embedding is a partial exception on motion: its 3.52 on action is the best of the ten models that ran GroOT, hinting that video-native pretraining helps even where captions are ambiguous. The `combined` queries were built by rule-merging each track's two captions, then hand-checking all 344 for grammar and two gender conflicts (no new attributes added). See [`shawaf_vlm/data/groot_mot17_combined.json`](shawaf_vlm/data/groot_mot17_combined.json).
 
 Full per-protocol numbers, Rank-5/10/20/50, nDCG, and timing breakdowns are in [`notebooks/kaggle-zero-shot.ipynb`](notebooks/kaggle-zero-shot.ipynb).
 
@@ -177,20 +178,16 @@ operate on its clip embeddings.
 
 Related: [CLIP4Clip](https://arxiv.org/abs/2104.08860), [X-Pool](https://arxiv.org/abs/2203.15086), [TVPR](https://arxiv.org/abs/2307.07184).
 
-## Extended Zero-Shot Text-to-Tracklet Benchmark
+## Extended zero-shot checkpoint — all 156 configurations
 
-This checkpoint evaluates four frozen encoders on zero-shot text-to-tracklet
-retrieval with no Re-ID fusion and no fine-tuning. It contains 156 completed
-results: 4 models × 3 datasets × 13 configurations. The datasets are PRID,
-iLIDS, and Duke.
+The headline tables above keep one number per model and dataset. This section is the frozen record behind the extended models: **156 completed runs** — 4 models (OpenAI CLIP ViT-L/14, Jina CLIP v2, GME-Qwen2-VL-2B, Qwen3-VL-Embedding-2B) × 3 TVPReid subsets (PRID, iLIDS, Duke) × 13 configurations, with no Re-ID fusion and no fine-tuning. The best rows below match the TVPReid columns above; the multi-dataset Kaggle runs reproduce them within ±0.02 mAP.
 
-Each model/dataset pair includes `uniform8` plus the `vt_1fps_n12`,
+Each model/dataset pair covers `uniform8` plus the `vt_1fps_n12`,
 `vt_2fps_n32`, and `reid_8fps_n64` protocols with the applicable `mean`,
 `mean_s8`, `max`, and `query_max` pools. Here, `query_max` is the repository's
 pooling strategy used for this benchmark; it is not an implementation of
 official X-Pool.
 
-The table reports the best observed configuration for each model/dataset pair.
 Rows are selected by highest Rank-1, then mAP, then nDCG@10, with CSV order as
 the final deterministic tie-breaker. Every value in a table row comes from the
 same result row.
@@ -210,10 +207,9 @@ same result row.
 | Qwen3-VL-Embedding-2B | iLIDS | 11.33 | 21.37 | 24.02 | `reid_8fps_n64` | `mean_s8` | 329.77 | 4.07 |
 | Qwen3-VL-Embedding-2B | Duke | 13.18 | 22.72 | 26.11 | `reid_8fps_n64` | `query_max` | 335.74 | 4.07 |
 
-The frozen checkpoint with all configurations and unrounded metrics is
+The full checkpoint with all configurations and unrounded metrics is
 [`results/checkpoints/extended_zero_shot_4models_3datasets_v1.csv`](results/checkpoints/extended_zero_shot_4models_3datasets_v1.csv).
-
-Reproduction uses two dependency profiles:
+It was produced with the Colab notebook below, in two dependency profiles:
 
 - **MODERN:** OpenAI CLIP ViT-L/14, Jina CLIP v2, and
   Qwen3-VL-Embedding-2B with Transformers 4.57.3.
