@@ -40,7 +40,7 @@ def download_hub_video_dataset(
     split: str,
     dest: Path,
     token: str | None = None,
-    max_workers: int = 8,
+    max_workers: int = 4,
 ) -> Path:
     """Download the split tables for ``configs``, then only the mp4s they list."""
 
@@ -83,16 +83,42 @@ def download_hub_video_dataset(
     return dest
 
 
-def hub_file(repo_id: str, filename: str, token: str | None, dest: Path) -> str:
+def hub_file(
+    repo_id: str,
+    filename: str,
+    token: str | None,
+    dest: Path,
+    retries: int = 6,
+) -> str:
+    import time
+
     from huggingface_hub import hf_hub_download
 
-    return hf_hub_download(
-        repo_id=repo_id,
-        filename=filename,
-        repo_type="dataset",
-        token=token,
-        local_dir=str(dest),
-    )
+    last: Exception | None = None
+    for attempt in range(max(1, retries)):
+        try:
+            return hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                repo_type="dataset",
+                token=token,
+                local_dir=str(dest),
+            )
+        except Exception as exc:
+            last = exc
+            # HF Xet token endpoint returns 429 when >1000 file requests / 5 min.
+            # TVPReid (820) + GroOT (454) in one session trips it with 8 workers.
+            if "429" not in str(exc) and "Too Many Requests" not in str(exc):
+                raise
+            wait = min(300, 10 * (2**attempt))
+            print(
+                f"HF rate limit (429) on {filename}, retry {attempt + 1}/{retries} "
+                f"in {wait}s...",
+                flush=True,
+            )
+            time.sleep(wait)
+    assert last is not None
+    raise last
 
 
 def load_hub_video_split(
