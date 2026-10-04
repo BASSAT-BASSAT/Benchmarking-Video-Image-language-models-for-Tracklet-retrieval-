@@ -90,7 +90,72 @@ Adding appearance back fixes it: the combined sentence beats appearance alone by
 
 Takeaway: current frozen models match clothing well, ignore generic motion, and do best when the query mentions both. Qwen3-VL-Embedding is a partial exception on motion: its 3.52 on action is the best of the ten models that ran GroOT, hinting that video-native pretraining helps even where captions are ambiguous. The `combined` queries were built by rule-merging each track's two captions, then hand-checking all 344 for grammar and two gender conflicts (no new attributes added). See [`shawaf_vlm/data/groot_mot17_combined.json`](shawaf_vlm/data/groot_mot17_combined.json).
 
-Full per-protocol numbers, Rank-5/10/20/50, nDCG, and timing breakdowns are in [`notebooks/kaggle-zero-shot.ipynb`](notebooks/kaggle-zero-shot.ipynb).
+### ActivityNet Captions: long videos, general events
+
+An out-of-domain check: the same frozen models on general-purpose, long-form video instead of person tracklets. The gallery is 1,000 `val1` videos (a seeded random sample, `MAX_VIDEOS=1000`, `ANET_SEED=0`; ~180 s on average) from [`friedrichor/ActivityNet_Captions`](https://huggingface.co/datasets/friedrichor/ActivityNet_Captions). Two query types share that gallery:
+
+- `paragraph` — one query per video: all of its event sentences joined into one paragraph.
+- `sentence` — one query per annotated event (about 3.6 per video).
+
+Every query has exactly one correct video, so mINP equals mAP. Only the seven `base` models were run; the `extended` models have not been run on ActivityNet yet.
+
+| Model | paragraph | sentence | mean Rank-1 |
+|---|---:|---:|---:|
+| Perception Encoder L/14 | 68.10 / 78.87 | **41.91** / 54.83 | **55.01** |
+| InternVideo2 CLIP-S | **69.80** / 80.24 | 39.73 / 52.87 | 54.76 |
+| LanguageBind | 64.10 / 75.18 | 36.96 / 49.82 | 50.53 |
+| SigLIP 2 So400m | 57.10 / 70.18 | 35.11 / 48.51 | 46.11 |
+| InternVideo2-1B-s2 | 37.70 / 48.77 | 10.62 / 15.48 | 24.16 |
+| X-CLIP | 28.60 / 41.53 | 14.04 / 23.59 | 21.32 |
+| IRRA | 16.40 / 27.20 | 8.29 / 15.40 | 12.35 |
+
+Each cell is **Rank-1 / mAP**, taken from each model's best protocol and pool for that query type. The best setting per cell:
+
+| Model | paragraph | sentence |
+|---|---|---|
+| Perception Encoder L/14 | `vt_2fps_n32` / `query_max` | `reid_8fps_n64` / `query_max` |
+| InternVideo2 CLIP-S | `vt_2fps_n32` / `mean_s8` | `reid_8fps_n64` / `query_max` |
+| LanguageBind | `vt_2fps_n32` / `mean_s8` | `reid_8fps_n64` / `query_max` |
+| SigLIP 2 So400m | `reid_8fps_n64` / `query_max` | `reid_8fps_n64` / `query_max` |
+| InternVideo2-1B-s2 | `vt_2fps_n32` / `query_max` | `reid_8fps_n64` / `query_max` |
+| X-CLIP | `vt_2fps_n32` / `mean` | `reid_8fps_n64` / `mean` |
+| IRRA | `reid_8fps_n64` / `query_max` | `reid_8fps_n64` / `query_max` |
+
+**The ranking flips relative to TVPReid.** IRRA, the clear winner on person tracklets, is last here (16.40 paragraph Rank-1): it was trained on person descriptions and does not transfer to general events. InternVideo2 CLIP-S and LanguageBind, which lag far behind on TVPReid, land in the top three. Perception Encoder is the best model overall by mean Rank-1, with InternVideo2 CLIP-S a close second (best on paragraph, second on sentence). InternVideo2-1B-s2, built for 4-frame clips (`uniform4` / `middle4`, 28 runs instead of 26), is the clear underperformer among the video models, and X-CLIP is far behind the leaders even though it is the fastest.
+
+**Paragraph queries beat sentence queries for every model**, by 8 to 30 points, because a whole-video caption carries many more cues than a single event.
+
+| Model | paragraph | sentence | paragraph − sentence |
+|---|---:|---:|---:|
+| InternVideo2 CLIP-S | 69.80 | 39.73 | 30.07 |
+| LanguageBind | 64.10 | 36.96 | 27.14 |
+| InternVideo2-1B-s2 | 37.70 | 10.62 | 27.08 |
+| Perception Encoder L/14 | 68.10 | 41.91 | 26.19 |
+| SigLIP 2 So400m | 57.10 | 35.11 | 21.99 |
+| X-CLIP | 28.60 | 14.04 | 14.56 |
+| IRRA | 16.40 | 8.29 | 8.11 |
+
+**Temporal setting matters far more here than on TVPReid.** Videos are long, so dense sampling plus `query_max` helps most on sentence queries, where one window can match one event: every model's best `sentence` result uses `reid_8fps_n64`. On paragraph queries, `mean` / `mean_s8` over `vt_2fps_n32` is as good as or better than `query_max` for InternVideo2 CLIP-S, LanguageBind, and X-CLIP. `max` pooling is the weakest pool for every model. For example, Perception Encoder drops to 58.50 paragraph Rank-1 with `reid_8fps_n64` / `max`, against 68.10 for its best setting.
+
+Cost on a Kaggle T4×2 session (two models run concurrently, one per GPU, on long videos):
+
+| Model | ms / clip (single) | ms / clip (windows) | Peak GPU GB | Total min |
+|---|---:|---:|---:|---:|
+| X-CLIP | 30.76 | 29.94 | 0.45 | 49 |
+| IRRA | 75.02 | 76.75 | 0.61 | 91 |
+| LanguageBind | 209.93 | 222.12 | 1.22 | 399 |
+| InternVideo2-1B-s2 | 301.07 | 301.18 | 5.52 | 545 |
+| Perception Encoder L/14 | 374.51 | 375.85 | 1.32 | 640 |
+| InternVideo2 CLIP-S | 379.22 | 381.57 | 1.54 | 651 |
+| SigLIP 2 So400m | 486.44 | 486.05 | 2.23 | 823 |
+
+These timings come from a different GPU setup and much longer videos than the TVPReid timings above, so do not compare the two sets of numbers directly.
+
+> **Caveat.** The gallery is a 1,000-video random sample of the 4,917-video `val1` split, so these numbers are **not comparable to published ActivityNet Captions retrieval results**. Set `MAX_VIDEOS = None` in the notebook for a full-split run. This benchmark also measures frozen, zero-shot encoders, not models fine-tuned for ActivityNet.
+
+The two ActivityNet notebooks are [`notebooks/kaggle-activitynet-siglip-irra-xclip-pe.ipynb`](notebooks/kaggle-activitynet-siglip-irra-xclip-pe.ipynb) (SigLIP 2, Perception Encoder, IRRA, X-CLIP; 104 result rows) and [`notebooks/kaggle-activitynet-languagebind-internvideo2.ipynb`](notebooks/kaggle-activitynet-languagebind-internvideo2.ipynb) (InternVideo2-1B-s2, LanguageBind, InternVideo2 CLIP-S; 80 result rows). The merged per-configuration results (184 rows, with Rank-5/10/20/50, MdR, MnR and nDCG@10) are in [`results/checkpoints/activitynet_zero_shot_7models_v1.csv`](results/checkpoints/activitynet_zero_shot_7models_v1.csv).
+
+Full per-protocol numbers, Rank-5/10/20/50, nDCG, and timing breakdowns for TVPReid, RSTPReid and GroOT-MOT17 are in [`notebooks/kaggle-zero-shot.ipynb`](notebooks/kaggle-zero-shot.ipynb). The ActivityNet breakdowns are in the two notebooks above.
 
 ## Install
 
@@ -274,10 +339,29 @@ metrics = evaluate_text_to_tracklet(encoder, splits, num_frames=8)
 | TVPReid (PRID / iLIDS / Duke) | video tracklets | [bassatbassat/TVPReid](https://huggingface.co/datasets/bassatbassat/TVPReid), test videos only |
 | RSTPReid | one image per tracklet | Google Drive via `gdown` (MSMT17 license forbids re-hosting) |
 | GroOT-MOT17 (`all` / `appearance` / `action` / `combined`) | video tracklets | [bassatbassat/GroOT-MOT17](https://huggingface.co/datasets/bassatbassat/GroOT-MOT17) |
+| ActivityNet Captions (`paragraph` / `sentence`) | long video, whole-video or per-event captions | [friedrichor/ActivityNet_Captions](https://huggingface.co/datasets/friedrichor/ActivityNet_Captions) `val1`, seeded 1,000-video sample; own notebooks, see below |
 
 Each result is saved as JSON right away under `zero_shot_results/<ENV_GROUP>/<dataset>/`. Finished rows are skipped when you rerun. The table cells merge every group, plus any earlier `zero_shot_results` you attach as a Kaggle input. They show the leaderboard, a cross-dataset Rank-1 matrix, pool comparisons, the GroOT appearance vs action vs combined comparison, and speed/GPU. They also write CSVs and `report.md` to `zero_shot_results/tables/`.
 
 The notebook runs `pip install -e ".[all]"` and **imports** `shawaf_vlm`. It does not reimplement the eval loop.
+
+### ActivityNet Captions notebooks
+
+ActivityNet Captions is run from two separate notebooks, both on a Kaggle **T4 ×2** session with Internet on and the `hugging_face` secret attached. With two GPUs visible, two workers run models concurrently, one pinned to each T4.
+
+| Notebook | Models |
+|---|---|
+| [`notebooks/kaggle-activitynet-siglip-irra-xclip-pe.ipynb`](notebooks/kaggle-activitynet-siglip-irra-xclip-pe.ipynb) | SigLIP 2, Perception Encoder L/14, IRRA, X-CLIP |
+| [`notebooks/kaggle-activitynet-languagebind-internvideo2.ipynb`](notebooks/kaggle-activitynet-languagebind-internvideo2.ipynb) | InternVideo2-1B-s2, LanguageBind, InternVideo2 CLIP-S |
+
+Both use `ENV_GROUP = "base"`. The `extended_modern` and `extended_gme` groups are already defined in the first notebook's configuration, so the `extended` models can be run on ActivityNet later with the same code, one group per session.
+
+- The videos live inside a ~42 GB split archive on the Hub (`ActivityNet_Videos.tar.part-000 … 007`). The notebook streams it once and keeps only the selected videos on disk (in `/kaggle/temp`); finished archive parts are deleted immediately.
+- `paragraph` and `sentence` share one gallery, so gallery embeddings are reused between them (rows marked `gallery_cached`).
+- `MAX_VIDEOS` (default 1000, seeded by `ANET_SEED = 0`) keeps a session inside the Kaggle time limit. Set it to `None` for the full 4,917-video `val1` split; set `ANET_SPLIT = "val2"` for the other split.
+- Each result row is written as JSON the moment it finishes, so a restarted session skips what is done. To combine sessions, save each session's `/kaggle/working/zero_shot_results` as a Kaggle dataset and attach it.
+- The notebooks write the same table CSVs and `report.md` to `zero_shot_results/tables/`, including `activitynet_paragraph_vs_sentence.csv`.
+- Both notebooks pin `shawaf_vlm 0.1.18`.
 
 GroOT-MOT17 was built once from MOT17 train (FRCNN copy) and the [GroOT](https://github.com/uark-cviu/Type-to-Track) captions (Nguyen et al., NeurIPS 2023):
 
