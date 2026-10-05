@@ -19,6 +19,7 @@ Thumbs.db
 htmlcov/
 *.log
 logs/
+.ipynb_checkpoints/
 
 datasets/
 InternVideo/
