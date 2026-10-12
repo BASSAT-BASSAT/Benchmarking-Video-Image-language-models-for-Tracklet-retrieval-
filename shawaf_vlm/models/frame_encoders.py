@@ -27,6 +27,59 @@ from shawaf_vlm.models.runtime import (
 )
 
 SIGLIP2 = "google/siglip2-so400m-patch14-384"
+
+
+class _Siglip2ProcessorShim:
+    """Image processor + Gemma tokenizer (SigLIP 2 Hub checkpoints)."""
+
+    def __init__(self, image_processor, tokenizer) -> None:
+        self.image_processor = image_processor
+        self.tokenizer = tokenizer
+
+    def __call__(
+        self,
+        images=None,
+        text=None,
+        return_tensors: str = "pt",
+        **kwargs,
+    ):
+        if images is not None:
+            return self.image_processor(images=images, return_tensors=return_tensors)
+        if text is not None:
+            return self.tokenizer(
+                text,
+                return_tensors=return_tensors,
+                padding=kwargs.get("padding", "max_length"),
+                truncation=kwargs.get("truncation", True),
+                max_length=kwargs.get("max_length"),
+            )
+        raise ValueError("Pass images= or text= to the SigLIP 2 processor shim.")
+
+
+def load_siglip2_processor(checkpoint: str = SIGLIP2):
+    """Load processor; avoid AutoProcessor picking legacy SiglipTokenizer on TF 4.x."""
+
+    from transformers import AutoImageProcessor, AutoTokenizer
+
+    try:
+        from transformers import Siglip2Processor
+
+        return Siglip2Processor.from_pretrained(checkpoint)
+    except (ImportError, OSError, ValueError):
+        pass
+
+    try:
+        image_processor = AutoImageProcessor.from_pretrained(checkpoint)
+        tokenizer = AutoTokenizer.from_pretrained(checkpoint)
+        return _Siglip2ProcessorShim(image_processor, tokenizer)
+    except (OSError, ValueError, TypeError):
+        pass
+
+    from transformers import AutoProcessor
+
+    return AutoProcessor.from_pretrained(checkpoint)
+
+
 PE_CORE_L14 = "hf-hub:timm/PE-Core-L-14-336"
 IRRA_DRIVE_ID = "1OBhFhpZpltRMZ88K6ceNUv4vZgevsFCW"
 IRRA_IMAGE_SIZE = (384, 128)
@@ -141,24 +194,19 @@ def _load_frames(paths: list[Path]) -> list[Image.Image]:
 
 
 class Siglip2Encoder(_FrameEncoder):
-    """google/siglip2-so400m-patch14-384.
-
-    That Hub config says ``model_type=siglip`` and ships ``SiglipProcessor``.
-    AutoModel follows the config, so the fixed-resolution checkpoint is not
-    forced into the NaFlex ``Siglip2Model`` class.
-    """
+    """google/siglip2-so400m-patch14-384 (Gemma tokenizer + SigLIP image tower)."""
 
     name = "siglip2"
     checkpoint = SIGLIP2
 
     def __init__(self, device: str = "cuda", checkpoint: str | None = None) -> None:
         import torch
-        from transformers import AutoModel, AutoProcessor
+        from transformers import AutoModel
 
         super().__init__(device)
         self.checkpoint = checkpoint or SIGLIP2
         dtype = torch.float16 if self.device.startswith("cuda") else torch.float32
-        self.processor = AutoProcessor.from_pretrained(self.checkpoint)
+        self.processor = load_siglip2_processor(self.checkpoint)
         self.model = load_pretrained(
             AutoModel.from_pretrained,
             self.checkpoint,

@@ -10,9 +10,11 @@ text description ──► text encoder ──► text embedding
 tracklet ──────────► video/image encoder ──► tracklet embedding ──► ranked gallery
 ```
 
-This repository does **not** fuse VLM and Re-ID features, train a projection
-into the VLM space, or use Qdrant. Those are later SHAWAF stages. The identity
-encoder remains in the sibling `Person-ReID-BenchMark` project.
+This repository does **not** fuse VLM and Re-ID features or train a projection
+into the VLM space (later SHAWAF stages). Optional **Qdrant + Gradio demo**
+support interactive text→tracklet search with multiple pooling modes; the core
+benchmark remains embedding-only. The identity encoder remains in the sibling
+`Person-ReID-BenchMark` project.
 
 ## Executive summary
 
@@ -186,11 +188,12 @@ Qwen3-VL-Embedding-2B across PRID, iLIDS, and Duke:
 
 | Path | Purpose |
 |---|---|
-| [`shawaf_vlm/`](shawaf_vlm/) | Encoders, dataset loaders, sampling, pooling, metrics, and evaluation loop |
-| [`scripts/eval_encoder.py`](scripts/eval_encoder.py) | Command-line evaluation entry point |
-| [`scripts/build_groot_mot17.py`](scripts/build_groot_mot17.py) | Build the GroOT-MOT17 metadata |
-| [`notebooks/`](notebooks/) | Executed Kaggle/Colab experiment notebooks |
-| [`tests/`](tests/) | Dataset, model, and evaluation tests |
+| [`shawaf_vlm/`](shawaf_vlm/) | Core library: `data/`, `models/`, `retrieval/`, eval loop |
+| [`scripts/`](scripts/README.md) | CLI: download, index, eval, figures (see scripts README) |
+| [`demo/`](demo/app.py) | Gradio UI (search only; data via `download_tier_a.py`) |
+| [`docs/`](docs/ARCHITECTURE.md) | Architecture, [environments](docs/ENVIRONMENTS.md), [datasets](docs/datasets_catalog.md) |
+| [`notebooks/`](notebooks/) | Kaggle/Colab experiment notebooks |
+| [`tests/`](tests/) | Pytest suite (`pytest` from repo root) |
 | [`assets/`](assets/) | Report figures |
 | [`papers/`](papers/) | Reference papers |
 
@@ -221,11 +224,41 @@ separate because the two profiles are not mutually compatible.
 python scripts/eval_encoder.py --model xclip --data-root "../Person-ReID-BenchMark/datasets/MARS" --ann-root "/path/to/tv-mars-captions" --device cuda
 ```
 
-For sliding windows and pooling:
+For sliding windows and pooling (including **Method C** / `global_local`):
+
+| Mode | CLI pool | Scoring |
+|------|----------|---------|
+| Average (global) | `mean` | Mean of clip embeddings per tracklet; `cos(q, g)` |
+| Max (local) | `query_max` | `max_i cos(q, c_i)` per tracklet |
+| Type C (hybrid) | `global_local` | `α·cos(q,g) + (1−α)·max_i cos(q,c_i)` (`--hybrid-alpha`, default 0.5) |
 
 ```bash
-python scripts/eval_encoder.py --model languagebind --windows --stride 4 --sample-fps 2 --max-frames 32 --pools mean,mean_s8,max,query_max
+python scripts/eval_encoder.py --model languagebind --windows --stride 4 --sample-fps 2 --max-frames 32 --pools mean,query_max,global_local --hybrid-alpha 0.5
 ```
+
+Re-run the same command on TVPReid, RSTPReid, and GroOT (via dataset loaders in
+the Kaggle notebook or `shawaf-vlm-eval`) to compare pooling strategies on Tier A
+benchmarks.
+
+### Interactive demo (Gradio + optional Qdrant)
+
+```bash
+pip install -e ".[demo]"
+# If transformers breaks after demo install: scripts/env/repair_crowd_gpu_deps.ps1
+
+python scripts/download_tier_a.py   # TVPReid + GroOT (HF) + RSTPReid (Drive)
+docker compose up -d qdrant         # optional; demo falls back to on-disk numpy index
+python scripts/index_qdrant.py --model siglip2 --dataset tvpreid:prid
+python demo/app.py
+python scripts/smoke_demo_stack.py   # smoke checks (no server)
+```
+
+Set `SHAWAF_MODEL_GROUP` to `base`, `extended_modern`, or `extended_gme` when
+switching encoder families (restart the app). Downloads use
+`HF_TOKEN` / `HUGGING_FACE_HUB_TOKEN` from the environment (CLI only, not Gradio).
+
+See [docs/datasets_catalog.md](docs/datasets_catalog.md) for integrated and
+planned text-to-person datasets.
 
 The loaders also support the public dataset mirrors used by the notebooks:
 [TVPReid](https://huggingface.co/datasets/bassatbassat/TVPReid),

@@ -27,6 +27,12 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
+def _transformers_major_version() -> int:
+    import transformers
+
+    return int(transformers.__version__.split(".", 1)[0])
+
+
 def internvideo_root() -> Path:
     """Locate the nested InternVideo checkout."""
 
@@ -193,6 +199,9 @@ def install_transformers_tokenizer_shims() -> None:
     tower replaces that alias, so the helpers have to live on the target module.
     """
 
+    if _transformers_major_version() < 5:
+        return
+
     import sys
 
     from transformers.tokenization_python import _is_control, _is_punctuation, _is_whitespace
@@ -218,6 +227,9 @@ def install_transformers_pretrained_shims() -> None:
     from_pretrained dies in mark_tied_weights_as_initialized after the
     bert-large weights have already loaded.
     """
+
+    if _transformers_major_version() < 5:
+        return
 
     import inspect
 

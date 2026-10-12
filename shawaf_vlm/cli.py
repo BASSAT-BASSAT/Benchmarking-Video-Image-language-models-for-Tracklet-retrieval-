@@ -51,8 +51,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--pools",
         type=str,
-        default="mean,mean_s8,max,query_max",
+        default="mean,mean_s8,max,query_max,global_local",
         help="Comma-separated pooling configs when --windows is set.",
+    )
+    parser.add_argument(
+        "--hybrid-alpha",
+        type=float,
+        default=0.5,
+        help="Weight on global mean score for global_local pool (1-alpha on local max).",
     )
     parser.add_argument(
         "--junk-same-camera",
@@ -139,6 +145,7 @@ def main(argv: list[str] | None = None) -> None:
             batch_size=args.batch_size,
             text_batch_size=args.text_batch_size,
             junk_same_camera=args.junk_same_camera,
+            hybrid_alpha=args.hybrid_alpha,
         )
         print()
         for pool, metrics in scored.items():
@@ -175,6 +182,7 @@ def main(argv: list[str] | None = None) -> None:
         "sample_fps": args.sample_fps,
         "max_frames": args.max_frames,
         "pools": args.pools,
+        "hybrid_alpha": args.hybrid_alpha,
         "batch_size": args.batch_size,
         "text_batch_size": args.text_batch_size,
         "device": args.device,

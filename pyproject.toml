@@ -44,19 +44,36 @@ internvideo2 = [
 all = [
     "torch>=2.1",
     "torchvision>=0.16",
-    "transformers>=4.40",
+    "transformers>=4.40,<5",
     "accelerate>=0.30",
     "pillow>=10.0",
     "einops>=0.7",
     "peft>=0.10",
     "timm>=1.0",
     "open-clip-torch>=2.24",
-    "huggingface_hub>=0.23",
+    "huggingface_hub>=0.23,<1.0",
     "opencv-python-headless>=4.8",
     "gdown>=5.2",
 ]
 test = [
     "pytest>=8",
+]
+dev = [
+    "pytest>=8",
+    "transformers>=4.40,<5",
+    "huggingface-hub>=0.23,<1.0",
+]
+demo = [
+    # Gradio 5+ pulls huggingface-hub>=1.x, which breaks transformers 4.x in the ML env.
+    "gradio>=4.44,<5",
+    # Gradio 4.44 breaks with FastAPI 0.12x + Starlette 1.x (Jinja template TypeError on /).
+    "fastapi>=0.115.2,<0.116",
+    "starlette>=0.40.0,<0.46.0",
+    "qdrant-client>=1.9",
+    "opencv-python-headless>=4.8",
+    "imageio-ffmpeg>=0.5.1",
+    "huggingface-hub>=0.23,<1.0",
+    "audioop-lts>=0.2.1; python_version>='3.13'",
 ]
 openai_clip = [
     "torch>=2.1",

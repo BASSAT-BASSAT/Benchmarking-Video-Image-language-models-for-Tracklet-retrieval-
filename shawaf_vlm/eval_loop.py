@@ -12,6 +12,7 @@ from shawaf_vlm.metrics import evaluate_from_distmat, evaluate_text_retrieval
 from shawaf_vlm.models.protocol import VideoTextEncoder
 from shawaf_vlm.pooling import (
     DEFAULT_POOLS,
+    hybrid_global_local_similarity,
     pool_clip_features,
     query_max_similarity,
 )
@@ -117,12 +118,14 @@ def evaluate_text_to_tracklet_windows(
     text_batch_size: int = 32,
     junk_same_camera: bool = False,
     frame_cache: Path | str | None = None,
+    hybrid_alpha: float = 0.5,
 ) -> dict[str, dict[str, float]]:
     """Encode sliding-window clips once, then score several pooling configs.
 
     ``mean`` / ``max`` average or max-pool clip vectors (CLIP4Clip-style).
     ``mean_s8`` keeps every other stride-4 window (approx. stride 8).
     ``query_max`` scores max clip–text cosine (late interaction / X-Pool-lite).
+    ``global_local`` fuses mean-pooled global and query_max local scores.
     """
 
     t0 = time.perf_counter()
@@ -170,6 +173,20 @@ def evaluate_text_to_tracklet_windows(
         t_score = time.perf_counter()
         if pool == "query_max":
             similarity = query_max_similarity(text_features, grouped)
+            metrics = evaluate_from_distmat(
+                distmat=(1.0 - similarity).astype(np.float32),
+                query_pids=query_pids,
+                gallery_pids=gallery_pids,
+                query_camids=query_camids,
+                gallery_camids=gallery_camids,
+                junk_same_camera=junk_same_camera,
+            )
+        elif pool == "global_local":
+            similarity = hybrid_global_local_similarity(
+                text_features,
+                grouped,
+                alpha=hybrid_alpha,
+            )
             metrics = evaluate_from_distmat(
                 distmat=(1.0 - similarity).astype(np.float32),
                 query_pids=query_pids,
