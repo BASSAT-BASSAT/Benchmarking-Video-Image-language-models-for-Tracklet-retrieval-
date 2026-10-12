@@ -79,5 +79,8 @@ def test_build_demo_api_info() -> None:
     sys.path.insert(0, str(repo))
     from demo.app import build_demo
 
+    from demo.app import _patch_gradio_client_schema
+
+    _patch_gradio_client_schema()
     demo = build_demo()
     demo.get_api_info()

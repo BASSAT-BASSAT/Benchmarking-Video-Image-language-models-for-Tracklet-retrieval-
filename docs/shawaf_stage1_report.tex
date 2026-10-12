@@ -1,0 +1,385 @@
+% SHAWAF Stage 1 — technical report (compile with pdflatex or latexmk)
+% Figures: optional \includegraphics from ../assets/ when building from docs/
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{longtable}
+\usepackage{caption}
+
+\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue}
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!8},
+}
+
+\title{SHAWAF Stage 1:\\Text-to-Tracklet Retrieval with Frozen Vision--Language Encoders\\[0.4em]
+\large Sampling, Pooling (Method~C), Benchmarks, and Interactive Retrieval}
+\author{Benchmarking Video/Image Language Models for Tracklet Retrieval}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+SHAWAF (Stage~1) evaluates \emph{frozen} vision--language models (VLMs) for natural-language query $\rightarrow$ tracklet retrieval: each text description is embedded, each gallery tracklet is embedded from video frames or still images, and cosine similarity ranks the gallery.
+This report documents design choices in the \texttt{Embeddings} repository: Tier-A datasets, encoder groups (\texttt{base} vs.\ \texttt{extended\_modern} vs.\ \texttt{extended\_gme}), frame sampling and sliding-window protocols, pooling rules including \textbf{Type~C} (\texttt{global\_local} hybrid scoring), benchmark results, the numpy/Qdrant indexing path, the Gradio demo, limitations, and a roadmap toward large-scale corpus ingestion and optional two-stage temporal grounding.
+All headline benchmark numbers below are taken from the project README unless your in-flight Kaggle runs supersede them; pooling comparisons with \texttt{global\_local} should be read from fresh notebook outputs.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+%=============================================================================
+\section{Introduction and problem statement}
+%=============================================================================
+
+\subsection{What we are solving}
+Given a \textbf{gallery} of tracklets (short person-centric video clips or still-image identities) and a set of \textbf{text queries} (captions describing appearance, and sometimes motion or scene), we rank gallery items by semantic similarity to each query.
+Positives share the same \textbf{person identity} as the query's source item; metrics are standard re-identification retrieval: Rank-1, mean average precision (mAP), and related variants.
+
+This is \textbf{text-to-tracklet retrieval}, not:
+\begin{itemize}[noitemsep]
+  \item classical image-to-image Re-ID (no text query);
+  \item open-world video question answering;
+  \item pixel-level referring video segmentation (RVOS);
+  \item precise \textbf{temporal grounding} inside one long untrimmed video (start/end timestamps), though that is discussed as future work.
+\end{itemize}
+
+\subsection{Why frozen encoders only (Stage~1)}
+Stage~1 deliberately avoids fine-tuning on target benchmarks (except where a \emph{pretrained} checkpoint was already task-specific, e.g.\ IRRA).
+The scientific question is: \emph{which off-the-shelf encoder and which temporal pooling protocol} best align text with tracklets under zero-shot evaluation.
+Later SHAWAF stages may fuse Re-ID features or train projections; they are out of scope here.
+
+\subsection{Relation to ``hours of video in a database''}
+The \textbf{product-shaped} goal---ingest many hours of footage, index embeddings, return top-$K$ clips for a text query---uses the \textbf{same retrieval stack} as the benchmark (encode chunks $\rightarrow$ vector store $\rightarrow$ nearest-neighbor search).
+Tier-A benchmarks use \textbf{pre-cut tracklets}; scaling to raw long video requires an explicit \textbf{chunking} policy (sliding windows or detector/tracklet pipelines) documented in Section~\ref{sec:corpus}.
+That is engineering scale-up, not a different problem family from Stage~1 retrieval.
+
+%=============================================================================
+\section{Repository architecture}
+%=============================================================================
+
+The Python package \texttt{shawaf\_vlm/} implements loaders, encoders, sampling, pooling, metrics, and evaluation (\texttt{eval\_loop.py}).
+Scripts under \texttt{scripts/} download Tier-A data, run indexing, and smoke-test the demo.
+\texttt{demo/app.py} is a thin Gradio UI over \texttt{shawaf\_vlm.retrieval}.
+Notebooks (\texttt{kaggle-zero-shot.ipynb}, \texttt{colab\_extended\_zero\_shot.ipynb}, \texttt{pooling\_methods\_comparison.ipynb}) reproduce large benchmark grids and pooling ablations.
+
+\begin{description}
+  \item[Benchmark path] Dataset splits $\rightarrow$ frame/window extraction $\rightarrow$ \texttt{encode\_videos} / \texttt{encode\_texts} $\rightarrow$ pool $\rightarrow$ similarity matrix $\rightarrow$ Rank-1 / mAP.
+  \item[Interactive path] \texttt{download\_tier\_a.py} $\rightarrow$ \texttt{index\_qdrant.py} $\rightarrow$ on-disk numpy manifest (+ optional Qdrant) $\rightarrow$ demo search with \texttt{mean}, \texttt{query\_max}, or \texttt{global\_local}.
+\end{description}
+
+%=============================================================================
+\section{Datasets (Tier A and beyond)}
+%=============================================================================
+
+\label{sec:datasets}
+
+Table~\ref{tab:datasets} summarizes datasets integrated for Stage~1.
+All listed Tier-A sets are used \textbf{zero-shot} for every general VLM; IRRA is task-trained on person retrieval (not on these exact splits), which partially explains its strength.
+
+\begin{table}[ht]
+\centering
+\caption{Tier-A text-to-tracklet benchmarks in SHAWAF.}
+\label{tab:datasets}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Dataset & Modality & Gallery scale (test) & Query style \\
+\midrule
+TVPReid PRID & Video tracklets & 185 & 2 captions / video \\
+TVPReid iLIDS & Video tracklets & 75 & 2 captions / video \\
+TVPReid Duke & Video tracklets & 603 & 2 captions / video \\
+RSTPReid & Still images (5 cams) & 1{,}000 images & 2 captions / image \\
+GroOT-MOT17 & MOT17 track mp4s & 454 tracks & appearance / action / combined \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{TVPReid} captions emphasize \textbf{appearance} with some motion/scene wording; evaluation is video-level (retrieve the source mp4).
+\textbf{RSTPReid} removes temporal signal (single frame repeated to fill clip encoders).
+\textbf{GroOT-MOT17} separates \textbf{appearance}, \textbf{action}, and \textbf{combined} queries on the same tracks; action captions are highly repetitive (dataset ceiling; see Section~\ref{sec:limitations}).
+
+\textbf{ActivityNet Captions} (1{,}000-video sample) is an out-of-domain long-video check in the README; ranking \emph{reverses} relative to person retrieval (video-pretrained models lead).
+
+\textbf{Planned / stub:} TV-MARS, CUHK-PEDES, ICFG-PEDES (\texttt{docs/datasets\_catalog.md}).
+\textbf{Out of scope:} RefAVA/RAVAR (classification), raw AVA without retrieval labels.
+
+%=============================================================================
+\section{Model selection and environment groups}
+%=============================================================================
+
+\subsection{Encoder registry}
+Models are registered in \texttt{shawaf\_vlm/models/registry.py} with a common \texttt{VideoTextEncoder} protocol: \texttt{encode\_videos(list[frames])} and \texttt{encode\_texts(list[str])}, L2-normalized embeddings, cosine similarity at evaluation time.
+
+\subsection{Why three Kaggle/Colab groups}
+Dependency profiles are \textbf{not mutually compatible} at a single \texttt{transformers} version:
+\begin{itemize}[noitemsep]
+  \item \textbf{base} --- SigLIP~2, Perception Encoder (PE-Core L/14), IRRA, InternVideo2 CLIP-S, InternVideo2-1B-s2, X-CLIP, LanguageBind.
+  \item \textbf{extended\_modern} --- OpenAI CLIP ViT-L/14, Jina CLIP v2, Qwen3-VL-Embedding-2B (\texttt{transformers==4.57.3}).
+  \item \textbf{extended\_gme} --- GME-Qwen2-VL-2B (\texttt{transformers==4.51.3}).
+\end{itemize}
+Each group is typically one GPU session on Kaggle; results merge via saved \texttt{zero\_shot\_results/} folders.
+
+\subsection{Rationale for including each family}
+\begin{description}
+  \item[IRRA] Task-specific text--person alignment; upper bound for appearance descriptions on TVPReid/RSTP.
+  \item[SigLIP / PE-Core] Strong general image--language baselines; competitive on appearance and ActivityNet sentences.
+  \item[InternVideo2 CLIP-S] Video-language pretraining; strong on long events and GroOT combined captions.
+  \item[Qwen3-VL-Embedding] Best among \emph{extended} general models on TVPReid; heavier inference.
+  \item[X-CLIP / LanguageBind] Legacy video--text baselines; useful cost--accuracy anchors.
+  \item[InternVideo2-1B-s2] Short 4-frame native clip; included for completeness, weak on retrieval here.
+\end{description}
+
+Native clip lengths differ (e.g.\ 8 frames vs.\ 4 for s2); protocols respect \texttt{NATIVE\_FRAMES} in notebooks.
+
+%=============================================================================
+\section{Frame sampling and video decoding}
+%=============================================================================
+
+\subsection{Uniform clip sampling (\texttt{uniform8})}
+For a single clip per tracklet, \texttt{sample\_frame\_paths} or \texttt{resolve\_frame\_paths} selects \texttt{num\_frames} (default 8) indices along the tracklet.
+If the tracklet is shorter, frames are \textbf{padded by repeating the last frame} so encoders always see fixed length.
+For a single \texttt{.mp4}, frames are decoded with OpenCV or torchvision, written as cached JPEGs under \texttt{.cache/frame\_cache} (or per-video \texttt{.frames\_N}).
+
+Sampling modes:
+\begin{itemize}[noitemsep]
+  \item \textbf{uniform} --- linspace over frame indices;
+  \item \textbf{middle} --- midpoint of each temporal bin (InternVideo2-style).
+\end{itemize}
+
+\subsection{Dense sampling for sliding windows}
+Protocol \texttt{reid\_8fps\_n64} (and variants \texttt{vt\_1fps\_n12}, \texttt{vt\_2fps\_n32}) first builds a \textbf{dense} frame list:
+\texttt{resolve\_dense\_frame\_paths} samples video at \texttt{sample\_fps} (e.g.\ 8\,fps) up to \texttt{max\_frames} (e.g.\ 64), covering the whole tracklet.
+Still images use subsampled crop lists capped at \texttt{max\_frames}.
+
+\subsection{Why cache frames to JPEG}
+Most encoders consume \textbf{image paths}, not raw tensors in the eval loop.
+Caching avoids re-decoding mp4v/MPEG-4 clips on every run (TVPReid tracklets often use \texttt{mp4v}, which browsers also do not play without transcoding).
+
+%=============================================================================
+\section{Sliding windows and clip splitting}
+%=============================================================================
+
+\label{sec:windows}
+
+Given dense frames $f_1,\ldots,f_T$, \texttt{sliding\_windows} produces overlapping clips of length $W$ (default $W{=}8$) with stride $S$ (default $S{=}4$):
+\[
+\mathcal{C} = \bigl\{ (f_i,\ldots,f_{i+W-1}) \;:\; i \in \{0,S,2S,\ldots\} \cup \{\text{last valid start}\} \bigr\}.
+\]
+If $T \le W$, a single clip is formed via uniform resampling to $W$ frames.
+
+\textbf{Encode once, pool many:} All windows are encoded in one batched \texttt{encode\_videos} pass; features are grouped per tracklet for pooling (Section~\ref{sec:pooling}).
+This is the main \textbf{weak temporal} mechanism in Stage~1: temporal extent enters only through which frames appear in which window, not through a recurrent or transformer-over-time aggregator inside the benchmark loop.
+
+\subsection{Protocol summary}
+\begin{table}[ht]
+\centering
+\caption{Common temporal protocols (see README for headline selection per model).}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Name & Dense sampling & Window $W$ & Stride $S$ \\
+\midrule
+\texttt{uniform8} & N/A (one clip) & 8 & --- \\
+\texttt{vt\_1fps\_n12} & 1\,fps, max 12 & 8 & 4 \\
+\texttt{vt\_2fps\_n32} & 2\,fps, max 32 & 8 & 4 \\
+\texttt{reid\_8fps\_n64} & 8\,fps, max 64 & 8 & 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{Pooling and scoring (including Method C)}
+%=============================================================================
+
+\label{sec:pooling}
+
+For each tracklet $g$, let clip embeddings be $\mathbf{c}_1,\ldots,\mathbf{c}_K \in \mathbb{R}^D$ (L2-normalized).
+Let query embedding be $\mathbf{q}$ (L2-normalized).
+
+\begin{description}
+  \item[\texttt{mean}] Global vector $\bar{\mathbf{c}} = \mathrm{normalize}(\frac{1}{K}\sum_k \mathbf{c}_k)$; score $s = \mathbf{q}^\top \bar{\mathbf{c}}$.
+  \item[\texttt{max}] Element-wise max over clips then normalize (CLIP4Clip-style); less used in headline tables.
+  \item[\texttt{mean\_s8}] Subsample windows every 8 frames (approx.\ stride-8 from stride-4 encoding) before mean pool.
+  \item[\texttt{query\_max}] \textbf{Local / late interaction:} $s = \max_k \mathbf{q}^\top \mathbf{c}_k$.
+  \item[\texttt{global\_local} (Type C / Method C)] Hybrid:
+  \[
+  s = \alpha\, (\mathbf{q}^\top \bar{\mathbf{c}}) + (1-\alpha)\, \max_k (\mathbf{q}^\top \mathbf{c}_k),
+  \]
+  with default $\alpha = 0.5$ (\texttt{HYBRID\_ALPHA} in notebooks/CLI).
+\end{description}
+
+\textbf{Why Type C?}
+Mean pooling is stable when the query describes the whole tracklet (paragraph-level, overall appearance).
+\texttt{query\_max} helps when only \textbf{one temporal segment} matches the text (event-like sentence).
+Type C interpolates without re-encoding clips---all pools share the same encoded features in \texttt{evaluate\_text\_to\_tracklet\_windows}.
+
+\textbf{Comparison runs:}
+Use \texttt{pooling\_methods\_comparison.ipynb} for one model/dataset, or \texttt{kaggle-zero-shot.ipynb} section~5.3b after a full eval with \texttt{POOLS} containing \texttt{global\_local}.
+
+%=============================================================================
+\section{Evaluation metrics and protocol}
+%=============================================================================
+
+\begin{itemize}[noitemsep]
+  \item Embeddings L2-normalized; distance $= 1 - \cosine$.
+  \item Rank-1 and mAP with identity labels; optional same-camera junk filtering (\texttt{junk\_same\_camera}).
+  \item Headline README numbers pick the \textbf{best} tested protocol and pool per model/dataset (not a single fixed setting for all rows).
+  \item GroOT \textbf{action} column often excluded from cost--accuracy plots due to caption repetition ceiling.
+\end{itemize}
+
+%=============================================================================
+\section{Benchmark results (reference)}
+%=============================================================================
+
+\label{sec:results}
+
+The following tables are copied from the project README for writing convenience.
+\textbf{Update} with your new Kaggle \texttt{base} + \texttt{extended\_modern} runs when they finish, especially rows that add \texttt{global\_local} comparisons.
+
+\subsection{TVPReid (Rank-1 / mAP \%)}
+\begin{table}[ht]
+\centering
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Model & PRID & iLIDS & Duke \\
+\midrule
+IRRA & 66.55 / 76.09 & 30.00 / 41.29 & 38.06 / 50.79 \\
+SigLIP 2 & 35.56 / 50.84 & 18.67 / 28.88 & 21.97 / 33.03 \\
+PE-Core L/14 & 38.38 / 52.04 & 19.33 / 32.55 & 17.66 / 28.12 \\
+InternVideo2 CLIP-S & 32.39 / 43.77 & 13.33 / 24.14 & 18.49 / 28.36 \\
+Qwen3-VL-Emb-2B & 24.65 / 37.00 & 11.33 / 21.37 & 13.18 / 22.73 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{RSTPReid (Rank-1 / mAP \%)}
+IRRA 53.30 / 39.71; SigLIP 2 41.00 / 29.34; PE-Core 37.40 / 29.09 (see README for full table).
+
+\subsection{GroOT-MOT17 (Rank-1 \%)}
+Appearance / action / combined columns show appearance models win on appearance; combined benefits PE-Core and IRRA; action remains low (2--3\%) due to caption duplication.
+
+\subsection{ActivityNet sample (out of domain)}
+InternVideo2 CLIP-S leads paragraph; PE-Core leads sentence mean Rank-1; IRRA is weak---person specialization does not transfer to general events.
+
+%=============================================================================
+\section{Interactive retrieval stack}
+%=============================================================================
+
+\subsection{Indexing}
+\texttt{scripts/index\_qdrant.py} encodes the \textbf{gallery only} with the same windowing as eval (\texttt{encode\_gallery\_tracklets}), then writes:
+\begin{itemize}[noitemsep]
+  \item \texttt{manifest.json} + \texttt{vectors.npz} under \texttt{\$HOME/.cache/shawaf\_vlm/indexes/<model>/<dataset>/};
+  \item optional Qdrant collection (\texttt{docker compose up qdrant}) unless \texttt{--skip-qdrant}.
+\end{itemize}
+Each tracklet stores \texttt{global\_vector}, all \texttt{clip\_vectors}, and \texttt{media\_path} for preview.
+
+\subsection{Search (demo)}
+\texttt{demo/app.py} encodes the user query once, scores all indexed tracklets with selected mode (\texttt{mean}, \texttt{query\_max}, \texttt{global\_local}), returns top-5.
+Previews transcode \texttt{mp4v} to H.264 via \texttt{imageio-ffmpeg} when available.
+
+\subsection{What the demo is not}
+It does not run full benchmark mAP; it does not guarantee action understanding for free-form queries (``woman drinking water'') beyond what the frozen encoder provides.
+
+%=============================================================================
+\section{Corpus-scale ingestion (roadmap)}
+%=============================================================================
+
+\label{sec:corpus}
+
+To index \textbf{hours} of raw video:
+\begin{enumerate}
+  \item \textbf{Chunk} --- sliding windows on each file (reuse \texttt{sample\_fps}, \texttt{max\_frames}, \texttt{stride}) \emph{or} person tracklets from a detector/MOT pipeline.
+  \item \textbf{Metadata} --- store \texttt{video\_id}, \texttt{t\_start}, \texttt{t\_end}, path per row (extend manifest schema).
+  \item \textbf{Batch index} --- planned \texttt{index\_corpus.py} over a directory tree; same Qdrant/numpy search.
+  \item \textbf{Query} --- identical vector top-$K$; UI shows time range + file.
+\end{enumerate}
+
+Ingest cost is paid \textbf{offline}; online search stays fast (milliseconds--hundreds of ms at scale with Qdrant).
+
+%=============================================================================
+\section{Coarse retrieval and temporal grounding (future)}
+%=============================================================================
+
+\label{sec:grounding}
+
+\textbf{Coarse stage (Stage~1 + corpus index):} Text embedding vs.\ precomputed window/tracklet embeddings $\rightarrow$ top-$K$ candidates across the archive.
+Fast, amortized indexing.
+
+\textbf{Fine stage (optional research):} Temporal video grounding (TVG) or referring VOS on \textbf{one candidate clip} to predict $[t_{\mathrm{start}}, t_{\mathrm{end}}]$ or masks.
+LVLM grounding (TimeChat, VTimeLLM, UniTime, Time-R1, ED-VTG, etc.) is \textbf{slow per clip} (often seconds on GPU) and should run on top-5 or on user request, not on every query.
+
+This is \textbf{asymmetric retrieval}: wide cheap search, narrow expensive refinement---standard for large video archives.
+
+SHAWAF Stage~1 does \textbf{not} implement Stage~B; it documents the interface (returned clip path + optional future timestamp fields).
+
+%=============================================================================
+\section{Limitations}
+%=============================================================================
+
+\label{sec:limitations}
+
+\begin{enumerate}
+  \item \textbf{Zero-shot general VLMs} are not trained on your ad-hoc queries; TVPReid-style appearance text works best.
+  \item \textbf{Weak temporal modeling} --- windowing + max/hybrid pool, not explicit long-range video reasoning.
+  \item \textbf{Action queries} (GroOT action, ``drinking water'') hit encoder and caption ceilings; repetitive action labels limit mAP interpretation.
+  \item \textbf{Headline table heterogeneity} --- best protocol/pool per model; not apples-to-apples without fixed \texttt{reid\_8fps\_n64} + single pool.
+  \item \textbf{ActivityNet numbers} are a 1{,}000-video sample, not official leaderboard scores.
+  \item \textbf{mp4v} source clips require transcoding for in-browser preview; retrieval is unaffected.
+  \item \textbf{IRRA} is not zero-shot in the strictest sense (person-retrieval pretraining); included as a strong specialist baseline.
+  \item \textbf{No fusion} with dedicated Re-ID CNN embeddings in Stage~1.
+\end{enumerate}
+
+%=============================================================================
+\section{Reproducibility}
+%=============================================================================
+
+\begin{itemize}[noitemsep]
+  \item Install: \texttt{pip install -e ".[all]"} or model extras; demo: \texttt{pip install -e ".[demo]"} + \texttt{imageio-ffmpeg}.
+  \item Data: \texttt{python scripts/download\_tier\_a.py}; set \texttt{HF\_TOKEN} if needed.
+  \item Eval CLI: \texttt{shawaf-vlm-eval} / \texttt{scripts/eval\_encoder.py} with \texttt{--pools mean,query\_max,global\_local --hybrid-alpha 0.5}.
+  \item Kaggle: \texttt{notebooks/kaggle-zero-shot.ipynb}, secret \texttt{hugging\_face} for gated checkpoints.
+  \item Tests: \texttt{pytest} from repo root (\texttt{tests/test\_tv\_mars.py}, \texttt{test\_retrieval\_cache.py}, \texttt{test\_demo\_app.py}, etc.).
+  \item Environments: \texttt{docs/ENVIRONMENTS.md} (Gradio/FastAPI pins, Hub version conflicts).
+\end{itemize}
+
+%=============================================================================
+\section{Conclusion}
+%=============================================================================
+
+SHAWAF Stage~1 establishes a reproducible benchmark for frozen text-to-tracklet retrieval across TVPReid, RSTPReid, and GroOT-MOT17, with explicit control over \textbf{sampling}, \textbf{sliding windows}, and \textbf{pooling}, including Type~C \texttt{global\_local} fusion.
+The same embedding pipeline powers an interactive demo and future corpus indexing.
+Specialized models (IRRA) dominate person-description tasks; video-language models excel on general events; Type~C pooling tests whether combining global and local scores improves over either alone---your current Kaggle runs supply the definitive pooling comparison tables.
+Next engineering steps are corpus chunking metadata and optional on-demand temporal grounding on retrieved clips, without changing the core Stage~1 metric definitions.
+
+\appendix
+\section{Quick reference: CLI pooling flags}
+\begin{lstlisting}
+python scripts/eval_encoder.py --model pe_core_l14 \
+  --windows --stride 4 --sample-fps 8 --max-frames 64 \
+  --pools mean,query_max,global_local --hybrid-alpha 0.5
+\end{lstlisting}
+
+\section{File index}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Path & Role \\
+\midrule
+\texttt{shawaf\_vlm/sampling.py} & Frames, FPS sampling, sliding windows \\
+\texttt{shawaf\_vlm/pooling.py} & Mean, max, query\_max, global\_local \\
+\texttt{shawaf\_vlm/eval\_loop.py} & Windowed encode + multi-pool metrics \\
+\texttt{shawaf\_vlm/retrieval/} & Index, search, Qdrant \\
+\texttt{demo/app.py} & Gradio UI \\
+\texttt{docs/ARCHITECTURE.md} & Short architecture summary \\
+\bottomrule
+\end{tabular}
+
+\end{document}

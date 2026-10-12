@@ -21,6 +21,7 @@ from shawaf_vlm.retrieval.datasets import TIER_A_DATASETS, dataset_status
 from shawaf_vlm.retrieval.search import top_k_tracklets
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+PREVIEW_K = 5
 MODE_LABELS = {
     "Average (global mean)": "mean",
     "Max (best clip)": "query_max",
@@ -332,12 +333,12 @@ def search_ui(
     qvec = encoder.encode_texts([query.strip()])[0]
     if not isinstance(qvec, np.ndarray):
         qvec = np.asarray(qvec)
-    results = top_k_tracklets(qvec, tracklets, mode, k=5, hybrid_alpha=alpha)
+    results = top_k_tracklets(qvec, tracklets, mode, k=PREVIEW_K, hybrid_alpha=alpha)
     lines = [
         "| rank | tracklet_id | fused | global | local |",
         "| ---: | --- | ---: | ---: | ---: |",
     ]
-    gallery = []
+    gallery: list[tuple[str, str]] = []
     for rank, (t, fused, g_score, l_score) in enumerate(results, start=1):
         lines.append(
             f"| {rank} | {t.tracklet_id} | {fused:.4f} | {g_score:.4f} | {l_score:.4f} |"
@@ -353,7 +354,12 @@ def build_demo():
     with gr.Blocks(title="SHAWAF tracklet retrieval") as demo:
         gr.Markdown(
             "# SHAWAF — text → tracklet retrieval\n"
-            "Choose pooling mode, encoder, and dataset. Vectors are **model-specific** — rebuild the index after changing model."
+            "Frozen **text ↔ tracklet** search over a pre-built gallery index (Tier-A person/video benchmarks). "
+            "This is **not** open-world video QA: queries work best like the benchmark captions "
+            "(clothing, build, bag, colors). Action phrases (e.g. “eating lunch”) only help if the "
+            "encoder and frames support them.\n\n"
+            "Pooling **Type C** uses a global tracklet vector plus **best matching short window** "
+            "(weak temporal cue, not full event understanding). Rebuild the index after changing encoder."
         )
         with gr.Row():
             with gr.Column(scale=1):
@@ -388,10 +394,10 @@ def build_demo():
                 search_btn = gr.Button("Search", variant="primary")
                 table = gr.Markdown(label="Top 5")
                 gallery = gr.HTML(
-                    label="Previews (tracklet videos / images)",
+                    label="Previews",
                     value=(
-                        "<p><em>Search to preview top-5 tracklets. "
-                        "Clips show as frames; install <b>ffmpeg</b> for in-browser playback.</em></p>"
+                        "<p><em>Search for top-5 tracklets. "
+                        "Install <code>imageio-ffmpeg</code> for playable H.264 previews.</em></p>"
                     ),
                 )
 
@@ -414,12 +420,42 @@ def build_demo():
     return demo
 
 
+def _patch_gradio_client_schema() -> None:
+    """Gradio 4.44 + gradio_client crash when Video/Gallery schema uses bool additionalProperties."""
+    try:
+        import gradio_client.utils as client_utils
+
+        if getattr(client_utils, "_shawaf_schema_patched", False):
+            return
+        _orig_get_type = client_utils.get_type
+
+        def get_type(schema):  # type: ignore[no-untyped-def]
+            if not isinstance(schema, dict):
+                return "Any"
+            return _orig_get_type(schema)
+
+        client_utils.get_type = get_type
+        client_utils._shawaf_schema_patched = True
+    except ImportError:
+        pass
+
+
 def main() -> None:
+    _patch_gradio_client_schema()
+    if _resolve_ffmpeg_binary() is None:
+        print(
+            "Note: pip install imageio-ffmpeg for H.264 tracklet previews "
+            "(source mp4v files do not play in the browser)."
+        )
     demo = build_demo()
+    host = os.environ.get("SHAWAF_DEMO_HOST", "127.0.0.1")
+    port = int(os.environ.get("SHAWAF_DEMO_PORT", "7860"))
     demo.launch(
-        server_name=os.environ.get("SHAWAF_DEMO_HOST", "127.0.0.1"),
+        server_name=host,
+        server_port=port,
         show_api=False,
         allowed_paths=_allowed_media_paths(),
+        inbrowser=False,
     )
 
 
