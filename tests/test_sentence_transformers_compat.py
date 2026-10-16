@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from shawaf_vlm.models.sentence_transformers_compat import (
+    assert_embeddinggemma2_runtime,
     import_sentence_transformer,
     neutralize_broken_torchcodec,
     purge_torchcodec_modules,
@@ -44,7 +45,23 @@ def test_neutralize_does_not_leave_stub_modules() -> None:
     _clear_torchcodec_modules()
 
 
-def test_import_sentence_transformer_requires_st_61() -> None:
-    with patch("importlib.metadata.version", return_value="5.1.2"):
+def test_assert_embeddinggemma2_runtime_requires_st_61() -> None:
+    def fake_version(name: str) -> str:
+        if name == "sentence-transformers":
+            return "5.1.2"
+        return "5.1.0"
+
+    with patch("importlib.metadata.version", side_effect=fake_version):
         with pytest.raises(RuntimeError, match="6.1.0"):
-            import_sentence_transformer()
+            assert_embeddinggemma2_runtime()
+
+
+def test_assert_embeddinggemma2_runtime_requires_tf_5() -> None:
+    def fake_version(name: str) -> str:
+        if name == "sentence-transformers":
+            return "6.1.0"
+        return "4.57.3"
+
+    with patch("importlib.metadata.version", side_effect=fake_version):
+        with pytest.raises(RuntimeError, match="transformers>=5"):
+            assert_embeddinggemma2_runtime()

@@ -7,11 +7,16 @@ from pathlib import Path
 import numpy as np
 
 from shawaf_vlm.models.runtime import resolve_device
-from shawaf_vlm.models.sentence_transformers_compat import import_sentence_transformer
+from shawaf_vlm.models.sentence_transformers_compat import (
+    CHECKPOINT,
+    assert_embeddinggemma2_runtime,
+    import_sentence_transformer,
+)
 from shawaf_vlm.sampling import VIDEO_SUFFIXES
 
-CHECKPOINT = "google/embeddinggemma-2"
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+# Text + image only (440M); audio disabled per Hub selective-loading table.
+_CONFIG_KWARGS_TEXT_IMAGE: dict[str, object] = {"audio_config": None}
 
 
 def _l2_normalize_rows(matrix: np.ndarray) -> np.ndarray:
@@ -45,11 +50,20 @@ class EmbeddingGemma2Encoder:
     ) -> None:
         import torch
 
+        assert_embeddinggemma2_runtime()
         SentenceTransformer = import_sentence_transformer()
 
         self._device = resolve_device(device)
-        dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float32
-        config_kwargs: dict[str, object] = {"audio_config": None} if not load_audio else {}
+        if load_audio:
+            config_kwargs: dict[str, object] = {}
+        else:
+            config_kwargs = dict(_CONFIG_KWARGS_TEXT_IMAGE)
+        # Hub: use bf16 or float32 only (float16 breaks activations).
+        dtype = (
+            torch.bfloat16
+            if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+            else torch.float32
+        )
         self._st = SentenceTransformer(
             CHECKPOINT,
             model_kwargs={"torch_dtype": dtype},

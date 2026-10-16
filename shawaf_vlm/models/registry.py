@@ -118,8 +118,8 @@ _SPECS: dict[str, EncoderSpec] = {
         checkpoint="google/embeddinggemma-2",
         builder="embeddinggemma2",
         notes=(
-            "Sentence Transformers; SearchQuery text + image/video windows. "
-            "Use the embeddinggemma2 extra (newer transformers). Not in base Kaggle group."
+            "Hub google/embeddinggemma-2: ST>=6.1, transformers>=5, SearchQuery + image frames; "
+            "audio_config=None. Separate env from base Kaggle (pip uninstall torchcodec on Kaggle)."
         ),
     ),
 }

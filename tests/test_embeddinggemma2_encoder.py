@@ -16,14 +16,15 @@ def test_embeddinggemma2_mean_pool_text_and_frames() -> None:
     fake_st.encode.return_value = frame_embs
 
     st_cls = MagicMock(return_value=fake_st)
-    with patch(
-        "shawaf_vlm.models.embeddinggemma2.import_sentence_transformer",
-        return_value=st_cls,
-    ):
-        with patch("torch.cuda.is_available", return_value=False):
-            from shawaf_vlm.models.embeddinggemma2 import EmbeddingGemma2Encoder
+    with patch("shawaf_vlm.models.embeddinggemma2.assert_embeddinggemma2_runtime"):
+        with patch(
+            "shawaf_vlm.models.embeddinggemma2.import_sentence_transformer",
+            return_value=st_cls,
+        ):
+            with patch("torch.cuda.is_available", return_value=False):
+                from shawaf_vlm.models.embeddinggemma2 import EmbeddingGemma2Encoder
 
-            enc = EmbeddingGemma2Encoder(device="cpu")
+                enc = EmbeddingGemma2Encoder(device="cpu")
     texts = enc.encode_texts(["a", "b"], batch_size=2)
     assert texts.shape == (2, 4)
     fake_st.encode_query.assert_called_once()
@@ -44,14 +45,15 @@ def test_encode_window_rejects_raw_video_paths() -> None:
     pytest.importorskip("torch")
     fake_st = MagicMock()
     st_cls = MagicMock(return_value=fake_st)
-    with patch(
-        "shawaf_vlm.models.embeddinggemma2.import_sentence_transformer",
-        return_value=st_cls,
-    ):
-        with patch("torch.cuda.is_available", return_value=False):
-            from shawaf_vlm.models.embeddinggemma2 import EmbeddingGemma2Encoder
+    with patch("shawaf_vlm.models.embeddinggemma2.assert_embeddinggemma2_runtime"):
+        with patch(
+            "shawaf_vlm.models.embeddinggemma2.import_sentence_transformer",
+            return_value=st_cls,
+        ):
+            with patch("torch.cuda.is_available", return_value=False):
+                from shawaf_vlm.models.embeddinggemma2 import EmbeddingGemma2Encoder
 
-            enc = EmbeddingGemma2Encoder(device="cpu")
+                enc = EmbeddingGemma2Encoder(device="cpu")
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:

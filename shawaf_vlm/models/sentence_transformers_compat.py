@@ -28,11 +28,14 @@ def neutralize_broken_torchcodec() -> None:
         purge_torchcodec_modules()
 
 
+# From google/embeddinggemma-2 config_sentence_transformers.json on the Hub.
 _MIN_SENTENCE_TRANSFORMERS = "6.1.0"
+_MIN_TRANSFORMERS = "5.0.0"
+CHECKPOINT = "google/embeddinggemma-2"
 
 
-def import_sentence_transformer():
-    """Return SentenceTransformer class after torchcodec cleanup."""
+def assert_embeddinggemma2_runtime() -> None:
+    """Validate versions required by the Hub checkpoint (ST 6.1+, transformers 5+)."""
 
     from importlib.metadata import PackageNotFoundError, version
 
@@ -47,11 +50,28 @@ def import_sentence_transformer():
         ) from None
     if Version(st_version) < Version(_MIN_SENTENCE_TRANSFORMERS):
         raise RuntimeError(
-            f"google/embeddinggemma-2 requires sentence-transformers>={_MIN_SENTENCE_TRANSFORMERS}, "
-            f"found {st_version}. Run: pip uninstall -y torchcodec sentence-transformers && "
-            "pip install 'sentence-transformers>=6.1.0,<7'"
+            f"{CHECKPOINT} requires sentence-transformers>={_MIN_SENTENCE_TRANSFORMERS} "
+            f"(Hub modules use sentence_transformers.base); found {st_version}."
         )
 
+    try:
+        tf_version = version("transformers")
+    except PackageNotFoundError:
+        raise RuntimeError(
+            "transformers is not installed. "
+            'Use: pip install -e ".[embeddinggemma2]"'
+        ) from None
+    if Version(tf_version) < Version(_MIN_TRANSFORMERS):
+        raise RuntimeError(
+            f"{CHECKPOINT} needs transformers>={_MIN_TRANSFORMERS} (embedding_gemma2); "
+            f"found {tf_version}."
+        )
+
+
+def import_sentence_transformer():
+    """Return SentenceTransformer class after torchcodec cleanup."""
+
+    assert_embeddinggemma2_runtime()
     neutralize_broken_torchcodec()
     from sentence_transformers import SentenceTransformer
 

@@ -52,7 +52,7 @@ Set `HF_TOKEN` for Hub dataset downloads via `scripts/download_tier_a.py`.
 
 **EmbeddingGemma 2** conflicts with the pinned `transformers==4.51.3` in `[all]` / Kaggle `base`. Do not mix it with the main benchmark extra in one kernel; use the dedicated notebook or `embeddinggemma2` extra only.
 
-On Kaggle: **`google/embeddinggemma-2` requires `sentence-transformers>=6.1.0`** (not 5.x — missing `sentence_transformers.base`). After `pip install -e ".[embeddinggemma2]"`, run `pip uninstall -y torchcodec sentence-transformers` then `pip install 'sentence-transformers>=6.1.0,<7'`. Restart the kernel after setup. Tier-A eval uses **frame images** only.
+**`google/embeddinggemma-2` (Hub):** `sentence-transformers>=6.1.0` (required in `config_sentence_transformers.json`), `transformers>=5.0` (`embedding_gemma2`), text queries via **`SearchQuery`**, gallery as **images** (no text prefix), `config_kwargs={"audio_config": None}` for text+image. On Kaggle: do not reinstall torch (keep GPU build); `pip uninstall -y torchcodec sentence-transformers` then `pip install 'sentence-transformers>=6.1.0,<7' 'transformers>=5.0,<6'`. Restart kernel after setup.
 
 ## Gradio demo: tracklet previews look empty (grey video box)
 

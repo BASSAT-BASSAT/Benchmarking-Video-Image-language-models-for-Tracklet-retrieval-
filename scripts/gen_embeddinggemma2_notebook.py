@@ -361,9 +361,10 @@ elif REPO.exists():
 else:
     run(["git", "clone", "--depth", "1", SHAWAF_URL, str(REPO)])
 
-run([sys.executable, "-m", "pip", "install", "-q", "torch", "torchvision", "--index-url", TORCH_INDEX])
+if not ON_KAGGLE:
+    run([sys.executable, "-m", "pip", "install", "-q", "torch", "torchvision", "--index-url", TORCH_INDEX])
 run([sys.executable, "-m", "pip", "install", "-q", "-e", f"{REPO}[embeddinggemma2]"])
-# embeddinggemma-2 needs ST 6.1+; Kaggle's preinstalled torchcodec often breaks imports.
+# Hub: ST>=6.1, transformers>=5 (embedding_gemma2). Drop broken Kaggle torchcodec.
 subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "torchcodec"])
 subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "sentence-transformers"])
 run(
@@ -374,7 +375,7 @@ run(
         "install",
         "-q",
         "sentence-transformers>=6.1.0,<7.0",
-        "transformers>=4.57.3",
+        "transformers>=5.0.0,<6.0",
         "accelerate>=0.30",
     ]
 )
@@ -383,11 +384,15 @@ if "transformers" in sys.modules or "sentence_transformers" in sys.modules:
     raise RuntimeError("Restart the kernel, then run from the top (transformers/ST already imported).")
 
 sys.path.insert(0, str(REPO))
-from shawaf_vlm.models.sentence_transformers_compat import purge_torchcodec_modules
+from shawaf_vlm.models.sentence_transformers_compat import (
+    assert_embeddinggemma2_runtime,
+    purge_torchcodec_modules,
+)
 
 purge_torchcodec_modules()
 import shawaf_vlm
 
+assert_embeddinggemma2_runtime()
 from sentence_transformers import SentenceTransformer  # noqa: F401 — smoke test
 
 print(
