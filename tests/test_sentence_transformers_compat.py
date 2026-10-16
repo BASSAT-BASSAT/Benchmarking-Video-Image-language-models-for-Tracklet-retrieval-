@@ -4,7 +4,10 @@ import builtins
 import sys
 from unittest.mock import patch
 
-from shawaf_vlm.models.sentence_transformers_compat import neutralize_broken_torchcodec
+from shawaf_vlm.models.sentence_transformers_compat import (
+    neutralize_broken_torchcodec,
+    purge_torchcodec_modules,
+)
 
 
 def _clear_torchcodec_modules() -> None:
@@ -13,7 +16,16 @@ def _clear_torchcodec_modules() -> None:
             sys.modules.pop(key, None)
 
 
-def test_neutralize_broken_torchcodec_stubs_after_runtime_error() -> None:
+def test_purge_torchcodec_modules_removes_entries() -> None:
+    _clear_torchcodec_modules()
+    sys.modules["torchcodec"] = object()
+    sys.modules["torchcodec.decoders"] = object()
+    purge_torchcodec_modules()
+    assert "torchcodec" not in sys.modules
+    assert not any(k.startswith("torchcodec.") for k in sys.modules)
+
+
+def test_neutralize_does_not_leave_stub_modules() -> None:
     _clear_torchcodec_modules()
     real_import = builtins.__import__
 
@@ -25,11 +37,5 @@ def test_neutralize_broken_torchcodec_stubs_after_runtime_error() -> None:
     with patch("builtins.__import__", side_effect=fake_import):
         neutralize_broken_torchcodec()
 
-    dec = sys.modules["torchcodec.decoders"]
-    try:
-        dec.AudioDecoder()
-        raised = False
-    except ImportError:
-        raised = True
-    assert raised
+    assert "torchcodec" not in sys.modules
     _clear_torchcodec_modules()
