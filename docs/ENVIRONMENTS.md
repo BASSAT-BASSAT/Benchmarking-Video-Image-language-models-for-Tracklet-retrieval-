@@ -46,8 +46,11 @@ Included in the `demo` extra on Python 3.13+.
 | Benchmark / encoders | `crowd-gpu` | `pip install -e ".[all]"` |
 | Tests | same | `pip install -e ".[all,test]"` then `pytest` |
 | Gradio demo | same + demo | `pip install -e ".[all,demo]"` + repair script if needed |
+| EmbeddingGemma 2 notebook | **separate** env (TF ≥ 4.57) | `pip install -e ".[embeddinggemma2]"` — see `notebooks/embeddinggemma2_tier_a_zero_shot.ipynb` |
 
 Set `HF_TOKEN` for Hub dataset downloads via `scripts/download_tier_a.py`.
+
+**EmbeddingGemma 2** conflicts with the pinned `transformers==4.51.3` in `[all]` / Kaggle `base`. Do not mix it with the main benchmark extra in one kernel; use the dedicated notebook or `embeddinggemma2` extra only.
 
 ## Gradio demo: tracklet previews look empty (grey video box)
 

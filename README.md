@@ -272,6 +272,10 @@ MSMT17/RSTPReid data is not redistributed here.
   multi-dataset zero-shot benchmark.
 - [`notebooks/colab_extended_zero_shot.ipynb`](notebooks/colab_extended_zero_shot.ipynb):
   extended-model TVPReid checkpoint.
+- [`notebooks/embeddinggemma2_tier_a_zero_shot.ipynb`](notebooks/embeddinggemma2_tier_a_zero_shot.ipynb):
+  **EmbeddingGemma 2** on all Tier-A families (separate `embeddinggemma2` extra / env).
+- [`notebooks/pooling_methods_comparison.ipynb`](notebooks/pooling_methods_comparison.ipynb):
+  Type A/B/C pooling comparison for one model and dataset.
 - [`notebooks/activity-net-siglip-irra-xclip-perception.ipynb`](notebooks/activity-net-siglip-irra-xclip-perception.ipynb):
   ActivityNet base models, first group.
 - [`notebooks/activity-net-languagebind-internvideo.ipynb`](notebooks/activity-net-languagebind-internvideo.ipynb):

@@ -127,6 +127,18 @@ extended_gme = [
     "huggingface_hub>=0.23",
     "pandas>=2.0",
 ]
+embeddinggemma2 = [
+    "torch>=2.8,<2.9",
+    "torchvision>=0.23,<0.24",
+    "transformers>=4.57.3",
+    "sentence-transformers>=5.1.0",
+    "accelerate>=0.30",
+    "pillow>=10.0",
+    "opencv-python-headless>=4.8",
+    "huggingface_hub>=0.23",
+    "pandas>=2.0",
+    "gdown>=5.2",
+]
 
 
 [project.scripts]

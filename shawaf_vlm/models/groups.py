@@ -1,7 +1,8 @@
-"""Kaggle-style encoder environment groups for the demo UI."""
+"""Encoder groups for Kaggle notebooks, Colab, and the Gradio demo."""
 
 from __future__ import annotations
 
+# Tier-A zero-shot matrix (one Kaggle session per group; incompatible transformers pins).
 MODEL_GROUPS: dict[str, tuple[str, ...]] = {
     "base": (
         "siglip2",
@@ -18,7 +19,12 @@ MODEL_GROUPS: dict[str, tuple[str, ...]] = {
         "qwen3_vl_embed_2b",
     ),
     "extended_gme": ("gme_qwen2_vl_2b",),
+    # Separate env: pip install -e ".[embeddinggemma2]" (Sentence Transformers + recent transformers).
+    "embeddinggemma2": ("embeddinggemma2",),
 }
+
+# Registry keys kept for manual runs but excluded from standard benchmark groups.
+OPT_IN_MODELS: tuple[str, ...] = ("internvideo2_clip_1b",)
 
 
 def models_for_group(group: str | None) -> tuple[str, ...] | None:

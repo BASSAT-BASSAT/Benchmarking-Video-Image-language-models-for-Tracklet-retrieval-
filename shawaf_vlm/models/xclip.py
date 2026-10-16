@@ -87,14 +87,32 @@ class XCLIPEncoder:
         return np.concatenate(chunks, axis=0)
 
     def _forward_videos(self, pixel_values: object) -> object:
+        """Video embedding path with explicit return_dict (HF get_video_features bug)."""
+
         import torch
+
+        # transformers 4.57+ XCLIPModel.get_video_features calls self.mit(...) without
+        # return_dict=True; MIT then returns a tuple and .pooler_output raises.
+        batch_size, num_frames, num_channels, height, width = pixel_values.shape
+        flat_pixels = pixel_values.reshape(-1, num_channels, height, width)
+
+        def _encode() -> object:
+            vision_outputs = self.model.vision_model(
+                pixel_values=flat_pixels,
+                return_dict=True,
+            )
+            video_embeds = vision_outputs.pooler_output
+            video_embeds = self.model.visual_projection(video_embeds)
+            cls_features = video_embeds.view(batch_size, num_frames, -1)
+            mit_outputs = self.model.mit(cls_features, return_dict=True)
+            return mit_outputs.pooler_output
 
         with torch.no_grad():
             if self.device.startswith("cuda"):
                 with torch.autocast(device_type="cuda", dtype=torch.float16):
-                    features = self.model.get_video_features(pixel_values=pixel_values)
+                    features = _encode()
             else:
-                features = self.model.get_video_features(pixel_values=pixel_values)
+                features = _encode()
         return l2_normalize_torch(features)
 
     def _forward_texts(self, inputs: dict[str, object]) -> object:

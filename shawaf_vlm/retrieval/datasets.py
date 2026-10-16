@@ -20,6 +20,9 @@ class DatasetSpec:
     modality: str
 
 
+# Families run by kaggle-zero-shot.ipynb / embeddinggemma2_tier_a_zero_shot.ipynb
+TIER_A_ZERO_SHOT_FAMILIES: tuple[str, ...] = ("tvpreid", "rstpreid", "groot_mot17")
+
 TIER_A_DATASETS: tuple[DatasetSpec, ...] = (
     DatasetSpec("tvpreid:prid", "TVPReid PRID", "prid", "video"),
     DatasetSpec("tvpreid:ilids", "TVPReid iLIDS", "ilids", "video"),

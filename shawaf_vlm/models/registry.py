@@ -112,6 +112,16 @@ _SPECS: dict[str, EncoderSpec] = {
         builder="qwen3_vl_embed_2b",
         notes="Official native-video embedding path, fp16 and batch 1 on T4.",
     ),
+    "embeddinggemma2": EncoderSpec(
+        key="embeddinggemma2",
+        label="EmbeddingGemma 2",
+        checkpoint="google/embeddinggemma-2",
+        builder="embeddinggemma2",
+        notes=(
+            "Sentence Transformers; SearchQuery text + image/video windows. "
+            "Use the embeddinggemma2 extra (newer transformers). Not in base Kaggle group."
+        ),
+    ),
 }
 
 
@@ -200,6 +210,12 @@ def _build_qwen3_vl_embed_2b(device: str) -> VideoTextEncoder:
     return Qwen3VLEmbeddingEncoder(device=device)
 
 
+def _build_embeddinggemma2(device: str) -> VideoTextEncoder:
+    from shawaf_vlm.models.embeddinggemma2 import EmbeddingGemma2Encoder
+
+    return EmbeddingGemma2Encoder(device=device)
+
+
 _BUILDERS: dict[str, Callable[..., VideoTextEncoder]] = {
     "xclip": _build_xclip,
     "languagebind": _build_languagebind,
@@ -213,4 +229,5 @@ _BUILDERS: dict[str, Callable[..., VideoTextEncoder]] = {
     "jina_clip_v2": _build_jina_clip_v2,
     "gme_qwen2_vl_2b": _build_gme_qwen2_vl_2b,
     "qwen3_vl_embed_2b": _build_qwen3_vl_embed_2b,
+    "embeddinggemma2": _build_embeddinggemma2,
 }
