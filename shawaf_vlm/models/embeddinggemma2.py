@@ -1,4 +1,4 @@
-"""Google EmbeddingGemma 2 via Sentence Transformers (text + image/video inputs)."""
+"""Google EmbeddingGemma 2 via Sentence Transformers (text + image inputs)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from shawaf_vlm.models.runtime import resolve_device
+from shawaf_vlm.models.sentence_transformers_compat import import_sentence_transformer
 from shawaf_vlm.sampling import VIDEO_SUFFIXES
 
 CHECKPOINT = "google/embeddinggemma-2"
@@ -43,7 +44,8 @@ class EmbeddingGemma2Encoder:
         video_fps: float = 1.0,
     ) -> None:
         import torch
-        from sentence_transformers import SentenceTransformer
+
+        SentenceTransformer = import_sentence_transformer()
 
         self._device = resolve_device(device)
         dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float32
@@ -99,20 +101,17 @@ class EmbeddingGemma2Encoder:
             )
             return np.asarray(vec[0], dtype=np.float32)
 
-        if len(paths) == 1 and paths[0].suffix.lower() in VIDEO_SUFFIXES:
-            vec = self._st.encode(
-                [{"video": str(paths[0])}],
-                normalize_embeddings=True,
-                show_progress_bar=False,
-            )
-            return np.asarray(vec[0], dtype=np.float32)
-
         payloads: list[dict[str, str]] = []
         for path in paths:
             suffix = path.suffix.lower()
-            if suffix in _IMAGE_SUFFIXES or suffix in VIDEO_SUFFIXES:
-                key = "image" if suffix in _IMAGE_SUFFIXES else "video"
-                payloads.append({key: str(path)})
+            if suffix in _IMAGE_SUFFIXES:
+                payloads.append({"image": str(path)})
+            elif suffix in VIDEO_SUFFIXES:
+                raise RuntimeError(
+                    f"EmbeddingGemma2 window contains raw video {path.name}; "
+                    "use frame paths from SHAWAF sampling (or set native_video_clip=True "
+                    "with FFmpeg/torchcodec available)."
+                )
             else:
                 payloads.append({"image": str(path)})
 

@@ -131,7 +131,8 @@ embeddinggemma2 = [
     "torch>=2.8,<2.9",
     "torchvision>=0.23,<0.24",
     "transformers>=4.57.3",
-    "sentence-transformers>=5.1.0",
+    # 5.4+ imports torchcodec at import time (needs FFmpeg on Kaggle). Pin + compat shim.
+    "sentence-transformers==5.1.2",
     "accelerate>=0.30",
     "pillow>=10.0",
     "opencv-python-headless>=4.8",

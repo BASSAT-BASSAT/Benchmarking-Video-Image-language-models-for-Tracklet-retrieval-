@@ -52,6 +52,8 @@ Set `HF_TOKEN` for Hub dataset downloads via `scripts/download_tier_a.py`.
 
 **EmbeddingGemma 2** conflicts with the pinned `transformers==4.51.3` in `[all]` / Kaggle `base`. Do not mix it with the main benchmark extra in one kernel; use the dedicated notebook or `embeddinggemma2` extra only.
 
+On Kaggle, if `import sentence_transformers` fails with **libtorchcodec / libavutil**, uninstall the broken wheel (`pip uninstall -y torchcodec`) and use **`sentence-transformers==5.1.2`** (pinned in `[embeddinggemma2]`). The encoder only needs **image** inputs for Tier-A frame windows.
+
 ## Gradio demo: tracklet previews look empty (grey video box)
 
 TVPReid / iLIDS tracklets are often **MPEG-4 Part 2** (`mp4v`) inside `.mp4`. Chrome and Edge usually **cannot** decode that in an HTML5 `<video>` tag (encoding still works via OpenCV).

@@ -15,9 +15,11 @@ def test_embeddinggemma2_mean_pool_text_and_frames() -> None:
     frame_embs = np.array([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]], dtype=np.float32)
     fake_st.encode.return_value = frame_embs
 
-    st_mod = MagicMock()
-    st_mod.SentenceTransformer.return_value = fake_st
-    with patch.dict(sys.modules, {"sentence_transformers": st_mod}):
+    st_cls = MagicMock(return_value=fake_st)
+    with patch(
+        "shawaf_vlm.models.embeddinggemma2.import_sentence_transformer",
+        return_value=st_cls,
+    ):
         with patch("torch.cuda.is_available", return_value=False):
             from shawaf_vlm.models.embeddinggemma2 import EmbeddingGemma2Encoder
 
@@ -36,6 +38,27 @@ def test_embeddinggemma2_mean_pool_text_and_frames() -> None:
         vecs = enc.encode_videos([[p1, p2]], batch_size=2)
     assert vecs.shape == (1, 4)
     assert np.isclose(np.linalg.norm(vecs[0]), 1.0, atol=1e-5)
+
+
+def test_encode_window_rejects_raw_video_paths() -> None:
+    pytest.importorskip("torch")
+    fake_st = MagicMock()
+    st_cls = MagicMock(return_value=fake_st)
+    with patch(
+        "shawaf_vlm.models.embeddinggemma2.import_sentence_transformer",
+        return_value=st_cls,
+    ):
+        with patch("torch.cuda.is_available", return_value=False):
+            from shawaf_vlm.models.embeddinggemma2 import EmbeddingGemma2Encoder
+
+            enc = EmbeddingGemma2Encoder(device="cpu")
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        mp4 = Path(tmp) / "clip.mp4"
+        mp4.write_bytes(b"x")
+        with pytest.raises(RuntimeError, match="raw video"):
+            enc._encode_one_window([mp4], batch_size=1)
 
 
 def test_build_encoder_registry_key() -> None:

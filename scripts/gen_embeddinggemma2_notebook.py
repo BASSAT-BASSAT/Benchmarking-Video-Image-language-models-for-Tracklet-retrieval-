@@ -362,6 +362,22 @@ else:
     run(["git", "clone", "--depth", "1", SHAWAF_URL, str(REPO)])
 
 run([sys.executable, "-m", "pip", "install", "-q", "torch", "torchvision", "--index-url", TORCH_INDEX])
+# Kaggle often has a broken torchcodec wheel; ST 5.4+ imports it at import time.
+subprocess.call(
+    [sys.executable, "-m", "pip", "uninstall", "-y", "torchcodec"],
+    cwd=str(REPO) if REPO.exists() else None,
+)
+run(
+    [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "-q",
+        "sentence-transformers==5.1.2",
+        "transformers>=4.57.3",
+    ]
+)
 run([sys.executable, "-m", "pip", "install", "-q", "-e", f"{REPO}[embeddinggemma2]"])
 
 if "transformers" in sys.modules:
