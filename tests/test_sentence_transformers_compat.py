@@ -56,12 +56,12 @@ def test_assert_embeddinggemma2_runtime_requires_st_61() -> None:
             assert_embeddinggemma2_runtime()
 
 
-def test_assert_embeddinggemma2_runtime_requires_tf_5() -> None:
+def test_assert_embeddinggemma2_runtime_requires_tf_519() -> None:
     def fake_version(name: str) -> str:
         if name == "sentence-transformers":
             return "6.1.0"
-        return "4.57.3"
+        return "5.18.0"
 
     with patch("importlib.metadata.version", side_effect=fake_version):
-        with pytest.raises(RuntimeError, match="transformers>=5"):
+        with pytest.raises(RuntimeError, match="5.19"):
             assert_embeddinggemma2_runtime()

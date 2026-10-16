@@ -130,8 +130,8 @@ extended_gme = [
 embeddinggemma2 = [
     "torch>=2.8,<2.9",
     "torchvision>=0.23,<0.24",
-    # Hub model_type embedding_gemma2; built with transformers 5.x (see config_sentence_transformers.json).
-    "transformers>=5.0.0,<6.0",
+    # embedding_gemma2 added in Transformers v5.19.0 (same release as the Hub checkpoint).
+    "transformers>=5.19.0,<6.0",
     # Hub requires >=6.1.0 for multimodal module paths and ordered image inputs.
     "sentence-transformers>=6.1.0,<7.0",
     "packaging>=23.0",

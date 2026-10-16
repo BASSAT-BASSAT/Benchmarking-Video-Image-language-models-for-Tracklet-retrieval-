@@ -374,8 +374,9 @@ run(
         "pip",
         "install",
         "-q",
+        "--upgrade",
         "sentence-transformers>=6.1.0,<7.0",
-        "transformers>=5.0.0,<6.0",
+        "transformers>=5.19.0,<6.0",
         "accelerate>=0.30",
     ]
 )
@@ -393,6 +394,13 @@ purge_torchcodec_modules()
 import shawaf_vlm
 
 assert_embeddinggemma2_runtime()
+from transformers.models.auto.configuration_auto import CONFIG_MAPPING
+
+if "embedding_gemma2" not in CONFIG_MAPPING:
+    raise RuntimeError(
+        "transformers is too old for google/embeddinggemma-2; need >=5.19.0. "
+        "Re-run setup: pip install --upgrade 'transformers>=5.19.0,<6'"
+    )
 from sentence_transformers import SentenceTransformer  # noqa: F401 — smoke test
 
 print(

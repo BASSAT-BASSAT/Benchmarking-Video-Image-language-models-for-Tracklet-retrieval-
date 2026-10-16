@@ -30,12 +30,12 @@ def neutralize_broken_torchcodec() -> None:
 
 # From google/embeddinggemma-2 config_sentence_transformers.json on the Hub.
 _MIN_SENTENCE_TRANSFORMERS = "6.1.0"
-_MIN_TRANSFORMERS = "5.0.0"
+_MIN_TRANSFORMERS = "5.19.0"  # embedding_gemma2 architecture (Transformers v5.19.0, Oct 2026)
 CHECKPOINT = "google/embeddinggemma-2"
 
 
 def assert_embeddinggemma2_runtime() -> None:
-    """Validate versions required by the Hub checkpoint (ST 6.1+, transformers 5+)."""
+    """Validate versions required by the Hub checkpoint (ST 6.1+, transformers 5.19+)."""
 
     from importlib.metadata import PackageNotFoundError, version
 
