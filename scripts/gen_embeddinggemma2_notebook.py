@@ -363,8 +363,9 @@ else:
 
 run([sys.executable, "-m", "pip", "install", "-q", "torch", "torchvision", "--index-url", TORCH_INDEX])
 run([sys.executable, "-m", "pip", "install", "-q", "-e", f"{REPO}[embeddinggemma2]"])
-# Broken torchcodec on Kaggle breaks transformers (find_spec) and ST 5.4+ import.
+# embeddinggemma-2 needs ST 6.1+; Kaggle's preinstalled torchcodec often breaks imports.
 subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "torchcodec"])
+subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "sentence-transformers"])
 run(
     [
         sys.executable,
@@ -372,12 +373,11 @@ run(
         "pip",
         "install",
         "-q",
-        "--force-reinstall",
-        "--no-deps",
-        "sentence-transformers==5.1.2",
+        "sentence-transformers>=6.1.0,<7.0",
+        "transformers>=4.57.3",
+        "accelerate>=0.30",
     ]
 )
-run([sys.executable, "-m", "pip", "install", "-q", "transformers>=4.57.3", "accelerate>=0.30"])
 
 if "transformers" in sys.modules or "sentence_transformers" in sys.modules:
     raise RuntimeError("Restart the kernel, then run from the top (transformers/ST already imported).")

@@ -28,8 +28,29 @@ def neutralize_broken_torchcodec() -> None:
         purge_torchcodec_modules()
 
 
+_MIN_SENTENCE_TRANSFORMERS = "6.1.0"
+
+
 def import_sentence_transformer():
     """Return SentenceTransformer class after torchcodec cleanup."""
+
+    from importlib.metadata import PackageNotFoundError, version
+
+    from packaging.version import Version
+
+    try:
+        st_version = version("sentence-transformers")
+    except PackageNotFoundError:
+        raise RuntimeError(
+            "sentence-transformers is not installed. "
+            'Use: pip install -e ".[embeddinggemma2]"'
+        ) from None
+    if Version(st_version) < Version(_MIN_SENTENCE_TRANSFORMERS):
+        raise RuntimeError(
+            f"google/embeddinggemma-2 requires sentence-transformers>={_MIN_SENTENCE_TRANSFORMERS}, "
+            f"found {st_version}. Run: pip uninstall -y torchcodec sentence-transformers && "
+            "pip install 'sentence-transformers>=6.1.0,<7'"
+        )
 
     neutralize_broken_torchcodec()
     from sentence_transformers import SentenceTransformer

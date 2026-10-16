@@ -4,7 +4,10 @@ import builtins
 import sys
 from unittest.mock import patch
 
+import pytest
+
 from shawaf_vlm.models.sentence_transformers_compat import (
+    import_sentence_transformer,
     neutralize_broken_torchcodec,
     purge_torchcodec_modules,
 )
@@ -39,3 +42,9 @@ def test_neutralize_does_not_leave_stub_modules() -> None:
 
     assert "torchcodec" not in sys.modules
     _clear_torchcodec_modules()
+
+
+def test_import_sentence_transformer_requires_st_61() -> None:
+    with patch("importlib.metadata.version", return_value="5.1.2"):
+        with pytest.raises(RuntimeError, match="6.1.0"):
+            import_sentence_transformer()
