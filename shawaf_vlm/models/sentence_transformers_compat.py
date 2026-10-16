@@ -13,6 +13,21 @@ def purge_torchcodec_modules() -> None:
             sys.modules.pop(key, None)
 
 
+def purge_torchaudio_modules() -> None:
+    """Drop torchaudio from sys.modules after pip uninstall (Kaggle ABI mismatch with torch)."""
+
+    for key in list(sys.modules):
+        if key == "torchaudio" or key.startswith("torchaudio."):
+            sys.modules.pop(key, None)
+
+
+def prepare_embeddinggemma2_import_env() -> None:
+    """Purge optional audio wheels before importing sentence-transformers / transformers 5.19."""
+
+    neutralize_broken_torchcodec()
+    purge_torchaudio_modules()
+
+
 def neutralize_broken_torchcodec() -> None:
     """Drop unloadable torchcodec so transformers and sentence-transformers can import.
 
@@ -72,7 +87,7 @@ def import_sentence_transformer():
     """Return SentenceTransformer class after torchcodec cleanup."""
 
     assert_embeddinggemma2_runtime()
-    neutralize_broken_torchcodec()
+    prepare_embeddinggemma2_import_env()
     from sentence_transformers import SentenceTransformer
 
     return SentenceTransformer

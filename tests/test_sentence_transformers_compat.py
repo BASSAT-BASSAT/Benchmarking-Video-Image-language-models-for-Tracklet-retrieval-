@@ -10,6 +10,7 @@ from shawaf_vlm.models.sentence_transformers_compat import (
     assert_embeddinggemma2_runtime,
     import_sentence_transformer,
     neutralize_broken_torchcodec,
+    purge_torchaudio_modules,
     purge_torchcodec_modules,
 )
 
@@ -18,6 +19,13 @@ def _clear_torchcodec_modules() -> None:
     for key in list(sys.modules):
         if key == "torchcodec" or key.startswith("torchcodec."):
             sys.modules.pop(key, None)
+
+
+def test_purge_torchaudio_modules_removes_entries() -> None:
+    sys.modules["torchaudio"] = object()
+    sys.modules["torchaudio.io"] = object()
+    purge_torchaudio_modules()
+    assert "torchaudio" not in sys.modules
 
 
 def test_purge_torchcodec_modules_removes_entries() -> None:

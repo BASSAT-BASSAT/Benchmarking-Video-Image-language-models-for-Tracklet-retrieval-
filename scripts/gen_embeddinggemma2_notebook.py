@@ -364,9 +364,9 @@ else:
 if not ON_KAGGLE:
     run([sys.executable, "-m", "pip", "install", "-q", "torch", "torchvision", "--index-url", TORCH_INDEX])
 run([sys.executable, "-m", "pip", "install", "-q", "-e", f"{REPO}[embeddinggemma2]"])
-# Hub: ST>=6.1, transformers>=5 (embedding_gemma2). Drop broken Kaggle torchcodec.
-subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "torchcodec"])
-subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", "sentence-transformers"])
+# Hub: ST>=6.1, transformers>=5.19. Kaggle wheels often break TF/ST import (ABI mismatch).
+for _pkg in ("torchcodec", "torchaudio", "sentence-transformers"):
+    subprocess.call([sys.executable, "-m", "pip", "uninstall", "-y", _pkg])
 run(
     [
         sys.executable,
@@ -387,10 +387,10 @@ if "transformers" in sys.modules or "sentence_transformers" in sys.modules:
 sys.path.insert(0, str(REPO))
 from shawaf_vlm.models.sentence_transformers_compat import (
     assert_embeddinggemma2_runtime,
-    purge_torchcodec_modules,
+    prepare_embeddinggemma2_import_env,
 )
 
-purge_torchcodec_modules()
+prepare_embeddinggemma2_import_env()
 import shawaf_vlm
 
 assert_embeddinggemma2_runtime()
