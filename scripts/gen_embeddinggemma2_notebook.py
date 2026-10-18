@@ -301,7 +301,9 @@ Use a **separate** Python env from the `base` Kaggle group: `pip install -e ".[e
 
 Results: `zero_shot_results/embeddinggemma2/`. Bundled partial runs: `results/checkpoints/embeddinggemma2_tier_a_v1.csv`.
 
-Re-run **§4** to continue; only **pending** jobs run when `RESUME_COMPLETE = True`."""
+Re-run **§4** to continue; only **pending** jobs run when `RESUME_COMPLETE = True`.
+
+Handoff (what is done vs left): `notebooks/README.md`."""
     ),
     md("## 1. Configuration"),
     code(

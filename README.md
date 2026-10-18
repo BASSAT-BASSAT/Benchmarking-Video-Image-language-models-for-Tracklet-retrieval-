@@ -131,12 +131,13 @@ Pooling (Type A / B / C): see
 |---|---|
 | [`shawaf_vlm/`](shawaf_vlm/) | Library: data, models, retrieval, eval |
 | [`scripts/`](scripts/README.md) | Download, index, figures, annotations prep |
-| [`notebooks/`](notebooks/) | Kaggle/Colab benchmarks |
+| [`notebooks/`](notebooks/README.md) | Kaggle/Colab benchmarks — [**what’s left to run**](notebooks/README.md) |
 | [`docs/`](docs/ARCHITECTURE.md) | [Protocol & pooling](docs/retrieval_protocol_and_pooling.md), [full scores](docs/full_benchmark_scores.md), [environments](docs/ENVIRONMENTS.md) |
 
-**Notebooks:** [`kaggle-zero-shot.ipynb`](notebooks/kaggle-zero-shot.ipynb) (base group),
+**Notebooks:** see [`notebooks/README.md`](notebooks/README.md) (handoff + pending jobs).
+Main files: [`kaggle-zero-shot.ipynb`](notebooks/kaggle-zero-shot.ipynb),
 [`embeddinggemma2_tier_a_zero_shot.ipynb`](notebooks/embeddinggemma2_tier_a_zero_shot.ipynb),
-[`colab_extended_zero_shot.ipynb`](notebooks/colab_extended_zero_shot.ipynb) (extra VLMs).
+[`colab_extended_zero_shot.ipynb`](notebooks/colab_extended_zero_shot.ipynb).
 
 ## Limitations
 
