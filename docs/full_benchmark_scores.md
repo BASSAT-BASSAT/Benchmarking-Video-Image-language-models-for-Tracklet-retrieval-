@@ -5,7 +5,7 @@ Headline README tables show only the top tier; nothing is deleted here.
 
 **Protocol:** frozen encoders, cosine similarity, best temporal protocol and pool per
 cell (same rule as the main README). **EmbeddingGemma 2** uses a separate env;
-Duke `reid_8fps_n64` was still running when the bundled CSV was captured.
+Only TVPReid **Duke** `reid_8fps_n64` may still be missing from JSON if that run was interrupted; GroOT and the rest of Tier-A are complete on Kaggle.
 
 **Machine-readable checkpoints:**
 
@@ -83,8 +83,8 @@ Gallery: PRID 185 · iLIDS 75 · Duke 603.
 | X-CLIP | 2.62 | 0.44 | 2.91 |
 | InternVideo2-1B-s2 | 0.87 | 0.66 | 1.45 |
 
-GroOT **all** split (EmbeddingGemma 2 only in partial CSV): uniform8 **10.53 / 16.49**;
-`reid_8fps_n64` query_max **10.53 / 16.69**.
+GroOT **all** split (EmbeddingGemma 2, best Rank-1 / mAP in grid): uniform8 **10.53 / 16.49**;
+`reid_8fps_n64` global_local **10.53 / 16.90** (query_max **10.53 / 16.69**).
 
 ---
 

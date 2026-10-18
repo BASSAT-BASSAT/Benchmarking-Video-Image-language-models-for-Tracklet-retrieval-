@@ -22,7 +22,7 @@ Re-runs are **resume-safe**: finished JSON files are skipped automatically.
 |----------|----------|--------|
 | [`kaggle-zero-shot.ipynb`](kaggle-zero-shot.ipynb) | Kaggle T4 | **Done** for `base`, `extended_modern`, `extended_gme` (scores in README + [`docs/full_benchmark_scores.md`](../docs/full_benchmark_scores.md)) |
 | [`colab_extended_zero_shot.ipynb`](colab_extended_zero_shot.ipynb) | Colab T4 | **Done** for TVPReid-only extended VLMs (checkpoint: `results/checkpoints/extended_zero_shot_4models_3datasets_v1.csv`) |
-| [`embeddinggemma2_tier_a_zero_shot.ipynb`](embeddinggemma2_tier_a_zero_shot.ipynb) | Kaggle T4 | **Partial** — **20** of **43** Tier-A jobs left (see below) |
+| [`embeddinggemma2_tier_a_zero_shot.ipynb`](embeddinggemma2_tier_a_zero_shot.ipynb) | Kaggle T4 | **Partial** — **5** jobs left: TVPReid **Duke** `reid_8fps_n64` only (see below) |
 | [`activity-net-siglip-irra-xclip-perception.ipynb`](activity-net-siglip-irra-xclip-perception.ipynb) | Kaggle (archived) | **Done** — executed notebook with outputs; ActivityNet table in full scores |
 | [`activity-net-languagebind-internvideo.ipynb`](activity-net-languagebind-internvideo.ipynb) | Kaggle (archived) | **Done** — same |
 | [`pooling_methods_comparison.ipynb`](pooling_methods_comparison.ipynb) | Local / Colab | **Optional** — small TVPReid ablation (change `MODEL` / `DATASET_KEY`) |
@@ -58,26 +58,24 @@ RUN_SUBSET_FILTER = [("tvpreid", "duke")]
 RUN_PROTOCOLS = ["reid_8fps_n64"]
 ```
 
-### Jobs already in `results/checkpoints/embeddinggemma2_tier_a_v1.csv` (23 / 43)
+### What is complete (38 / 43 Tier-A jobs)
 
-- **TVPReid:** prid + ilids — `uniform8` and full `reid_8fps_n64` (all 5 pools).
-- **TVPReid duke:** `uniform8` only (window run was **interrupted** mid-gallery encode).
-- **RSTPReid test:** `uniform8` (image; no window protocol).
-- **GroOT:** all four subsets have `uniform8`; window protocol is **partial** (only some pools were written before the session moved on).
+- **TVPReid prid + ilids:** `uniform8` + full `reid_8fps_n64` (all 5 pools).
+- **TVPReid duke:** `uniform8` only.
+- **RSTPReid test:** `uniform8` (image gallery; no window protocol).
+- **GroOT-MOT17** (`all`, `appearance`, `action`, `combined`): `uniform8` + **full** `reid_8fps_n64` grid (all 5 pools per subset). Your §5 summary table is the source of truth here.
 
-### Jobs still to run (20)
+The repo checkpoint [`results/checkpoints/embeddinggemma2_tier_a_v1.csv`](../results/checkpoints/embeddinggemma2_tier_a_v1.csv) was an **early export** that only listed a few GroOT window rows; it did **not** mean GroOT was unfinished on Kaggle. Trust complete JSON under `zero_shot_results/embeddinggemma2/` or the notebook summary table.
 
-These are the rows **not** in the bundled CSV; §4 will run them if the matching JSON is absent.
+### Jobs still to run (5)
 
-| Dataset | Subset | Protocol | Pools to run |
-|---------|--------|----------|----------------|
+| Dataset | Subset | Protocol | Pools |
+|---------|--------|----------|--------|
 | TVPReid | **duke** | `reid_8fps_n64` | mean, mean_s8, max, query_max, global_local |
-| GroOT-MOT17 | all | `reid_8fps_n64` | mean, mean_s8, max, global_local *(query_max done)* |
-| GroOT-MOT17 | appearance | `reid_8fps_n64` | mean, mean_s8, max, global_local *(query_max done)* |
-| GroOT-MOT17 | action | `reid_8fps_n64` | mean_s8, max, global_local *(mean + query_max done)* |
-| GroOT-MOT17 | combined | `reid_8fps_n64` | mean, mean_s8, max, global_local *(query_max done)* |
 
-**Duke windows** are the slowest job (~8.5k clips, ~4.5 h on T4 for comparable models). Plan a long Kaggle session or use `RUN_SUBSET_FILTER` above.
+§4 skips any job whose JSON already has `status: complete`. If Duke windows finished after an interrupt, you are **done** — refresh the checkpoint CSV from JSON and update the Duke footnote in full scores.
+
+**Duke windows** are the slowest remaining job (~8.5k clips, ~4.5 h on T4 for comparable models). Use `RUN_SUBSET_FILTER` above for a focused session.
 
 ### After EmbeddingGemma finishes
 
