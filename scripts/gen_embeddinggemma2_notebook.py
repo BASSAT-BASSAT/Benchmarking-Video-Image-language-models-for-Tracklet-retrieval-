@@ -288,41 +288,45 @@ cells = [
     md(
         """# EmbeddingGemma 2 — Tier-A zero-shot benchmark
 
-Same protocol as `kaggle-zero-shot.ipynb`: **TVPReid** (prid, ilids, duke), **RSTPReid** (test), **GroOT-MOT17** (all, appearance, action, combined).
+**Handoff default (ready to Run All):** only **TVPReid Duke** `reid_8fps_n64` is left (~4–5 h on a T4). §1 downloads Duke test data only. §4 writes five JSON files (one per pool). Everything else on Tier-A is already complete.
+
+| Step | Action |
+|---|---|
+| Kaggle | GPU **T4**, Internet on. Optional: add a **dataset** whose tree includes `zero_shot_results/embeddinggemma2/` (§1 copies missing JSON into `/kaggle/working`). |
+| Env | Separate from `base`: `pip install -e ".[embeddinggemma2]"` in §2. Uninstall **torchcodec** / **torchaudio** on Kaggle; **restart kernel** if `transformers` was imported earlier. |
+| Run | **Run All** — or §2 → §3 → §4 if you already ran setup. |
+
+Full grid (prid, ilids, RSTP, GroOT): set `RUN_DATASETS` and filters in §1 to `None` / full lists — see `notebooks/README.md`.
 
 | Item | Value |
 |---|---|
 | Model | `google/embeddinggemma-2` |
-| Text | SearchQuery / encode_query |
-| Video | uniform8 (RSTP) + `reid_8fps_n64` sliding windows |
+| Protocol (this run) | `reid_8fps_n64` (8 fps, stride 4, cap 64) |
 | Pools | mean, mean_s8, max, query_max, global_local |
 
-Use a **separate** Python env from the `base` Kaggle group: `pip install -e ".[embeddinggemma2]"`. Restart the kernel if an older `transformers` was already imported.
-
-Results: `zero_shot_results/embeddinggemma2/`. Bundled partial runs: `results/checkpoints/embeddinggemma2_tier_a_v1.csv`.
-
-Re-run **§4** to continue; only **pending** jobs run when `RESUME_COMPLETE = True`.
-
-Handoff (what is done vs left): `notebooks/README.md`."""
+Results: `zero_shot_results/embeddinggemma2/`. Checkpoint summary: `results/checkpoints/embeddinggemma2_tier_a_v1.csv`."""
     ),
     md("## 1. Configuration"),
     code(
-        """from pathlib import Path
+        """import os
+from pathlib import Path
 
 ENV_GROUP = "embeddinggemma2"
 MODELS = ["embeddinggemma2"]
-RUN_DATASETS = ["tvpreid", "rstpreid", "groot_mot17"]
+
+# --- Handoff: Duke sliding windows only (set all three blocks to None / full for a full Tier-A re-run) ---
+RUN_DATASETS = ["tvpreid"]
+RUN_SUBSET_FILTER = [("tvpreid", "duke")]
+RUN_PROTOCOLS = ["reid_8fps_n64"]
+# RUN_DATASETS = ["tvpreid", "rstpreid", "groot_mot17"]
+# RUN_SUBSET_FILTER = None
+# RUN_PROTOCOLS = None
 
 # Resume: skip jobs that already have status=complete JSON under RESULTS_DIR.
 RESUME_COMPLETE = True
-# Optional narrow filters (None = all). Example after an interrupt on Duke windows only:
-# RUN_SUBSET_FILTER = [("tvpreid", "duke")]
-# RUN_PROTOCOLS = ["reid_8fps_n64"]
-RUN_SUBSET_FILTER = None
-RUN_PROTOCOLS = None
 
 DATASETS = {
-    "tvpreid": {"label": "TVPReid", "subsets": ["prid", "ilids", "duke"], "protocols": "video"},
+    "tvpreid": {"label": "TVPReid", "subsets": ["duke"], "protocols": "video"},
     "rstpreid": {"label": "RSTPReid", "subsets": ["test"], "protocols": "image"},
     "groot_mot17": {
         "label": "GroOT-MOT17",
@@ -354,7 +358,48 @@ ON_KAGGLE = Path("/kaggle/working").is_dir()
 WORK = Path("/kaggle/working") if ON_KAGGLE else Path("results")
 RESULTS_DIR = WORK / "zero_shot_results" / ENV_GROUP
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-print("Models", MODELS, "datasets", RUN_DATASETS, "results", RESULTS_DIR, flush=True)"""
+
+
+def seed_prior_results():
+    \"\"\"Copy completed JSON from a mounted Kaggle input dataset (skip existing files).\"\"\"
+    import shutil
+
+    sources = []
+    extra = os.environ.get("SHAWAF_PRIOR_RESULTS", "").strip()
+    if extra:
+        sources.append(Path(extra))
+    if ON_KAGGLE:
+        for inp in sorted(Path("/kaggle/input").iterdir()):
+            candidate = inp / "zero_shot_results" / ENV_GROUP
+            if candidate.is_dir():
+                sources.append(candidate)
+    n = 0
+    for src in sources:
+        for path in sorted(src.rglob("*.json")):
+            dest = RESULTS_DIR / path.relative_to(src)
+            if dest.exists():
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, dest)
+            n += 1
+    if sources:
+        print(f"Seeded {n} result JSON(s) into {RESULTS_DIR}", flush=True)
+
+
+seed_prior_results()
+print(
+    "Models",
+    MODELS,
+    "datasets",
+    RUN_DATASETS,
+    "filter",
+    RUN_SUBSET_FILTER,
+    "protocols",
+    RUN_PROTOCOLS,
+    "results",
+    RESULTS_DIR,
+    flush=True,
+)"""
     ),
     md("## 2. Setup"),
     code(

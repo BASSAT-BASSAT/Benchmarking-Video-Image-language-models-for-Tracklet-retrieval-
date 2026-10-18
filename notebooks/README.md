@@ -44,19 +44,15 @@ Regenerate from source after editing eval logic: `python scripts/gen_embeddingge
 3. On Kaggle: uninstall **torchcodec** and **torchaudio** if the kernel pulled them in; **restart kernel** before importing `transformers`.
 4. Do **not** reuse a session that already imported an older `transformers` from the `base` group.
 
-### How to resume
+### How to run (notebook is preconfigured)
 
-1. Keep `RESUME_COMPLETE = True` in §1.
-2. Optionally restore prior JSON under `zero_shot_results/embeddinggemma2/` from a Kaggle dataset (same paths as the notebook).
-3. Run **§2 Setup** → **§3 Data** → **§4 Evaluation**.
-4. §4 prints `pending: <dataset>/<subset> | <protocol>` for each job still missing a complete JSON.
+§1 is already set to **Duke only** + `reid_8fps_n64` + `RESUME_COMPLETE = True`. **Run All** on a fresh Kaggle notebook.
 
-**Narrow filters after an interrupt** (uncomment in §1):
+1. Add a Kaggle **input dataset** that contains your prior `zero_shot_results/embeddinggemma2/` tree (optional but recommended so §1 seeds JSON and §4 does not redo GroOT/PRID).
+2. Or set env `SHAWAF_PRIOR_RESULTS` to that folder path before §1.
+3. §4 should print **1** pending job: `tvpreid/duke | reid_8fps_n64` (five pool JSON files from one encode pass).
 
-```python
-RUN_SUBSET_FILTER = [("tvpreid", "duke")]
-RUN_PROTOCOLS = ["reid_8fps_n64"]
-```
+To re-run the **full** Tier-A grid, uncomment the full `RUN_DATASETS` / filter block in §1 (see comments there).
 
 ### What is complete (38 / 43 Tier-A jobs)
 
