@@ -25,7 +25,8 @@ Duke window protocol still in progress; see
 [`results/checkpoints/embeddinggemma2_tier_a_v1.csv`](results/checkpoints/embeddinggemma2_tier_a_v1.csv).
 
 All numbers below are **zero-shot**, **Rank-1 / mAP**, best protocol and pool
-per cell unless noted.
+per cell unless noted. **How frames, windows, and pooling work:**
+[`docs/retrieval_protocol_and_pooling.md`](docs/retrieval_protocol_and_pooling.md).
 
 ## Tier-A leaderboard (ranked)
 
@@ -121,7 +122,8 @@ pip install -e ".[embeddinggemma2]"  # EmbeddingGemma 2 only (do not mix with [a
 python scripts/eval_encoder.py --model pe_core_l14 --windows --pools mean,query_max,global_local
 ```
 
-Pooling: `mean` (global), `query_max` (best window), `global_local` (hybrid α).
+Pooling (Type A / B / C): see
+[`docs/retrieval_protocol_and_pooling.md`](docs/retrieval_protocol_and_pooling.md).
 
 ## Repository
 
@@ -130,7 +132,7 @@ Pooling: `mean` (global), `query_max` (best window), `global_local` (hybrid α).
 | [`shawaf_vlm/`](shawaf_vlm/) | Library: data, models, retrieval, eval |
 | [`scripts/`](scripts/README.md) | Download, index, figures, annotations prep |
 | [`notebooks/`](notebooks/) | Kaggle/Colab benchmarks |
-| [`docs/`](docs/ARCHITECTURE.md) | Architecture, [environments](docs/ENVIRONMENTS.md), [full scores](docs/full_benchmark_scores.md) |
+| [`docs/`](docs/ARCHITECTURE.md) | [Protocol & pooling](docs/retrieval_protocol_and_pooling.md), [full scores](docs/full_benchmark_scores.md), [environments](docs/ENVIRONMENTS.md) |
 
 **Notebooks:** [`kaggle-zero-shot.ipynb`](notebooks/kaggle-zero-shot.ipynb) (base group),
 [`embeddinggemma2_tier_a_zero_shot.ipynb`](notebooks/embeddinggemma2_tier_a_zero_shot.ipynb),

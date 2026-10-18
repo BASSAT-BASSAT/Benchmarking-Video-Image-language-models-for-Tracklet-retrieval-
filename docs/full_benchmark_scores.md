@@ -16,6 +16,9 @@ Duke `reid_8fps_n64` was still running when the bundled CSV was captured.
 [`colab_extended_zero_shot.ipynb`](../notebooks/colab_extended_zero_shot.ipynb),
 [`embeddinggemma2_tier_a_zero_shot.ipynb`](../notebooks/embeddinggemma2_tier_a_zero_shot.ipynb).
 
+**Protocols & pooling (uniform8 vs windows, mean vs query_max vs Type C):**
+[`retrieval_protocol_and_pooling.md`](retrieval_protocol_and_pooling.md).
+
 ---
 
 ## TVPReid (video tracklets)

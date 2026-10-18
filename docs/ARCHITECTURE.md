@@ -37,6 +37,8 @@ Dataset splits → window clips → encoder.encode_videos → pool per tracklet
 Text queries   → encoder.encode_texts → cosine rank gallery
 ```
 
+Details: [retrieval protocol & pooling](retrieval_protocol_and_pooling.md).
+
 ## Data flow (interactive demo)
 
 ```text
