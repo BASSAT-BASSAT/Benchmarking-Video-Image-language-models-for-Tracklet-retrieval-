@@ -16,6 +16,7 @@ import numpy as np
 
 from shawaf_vlm.models.groups import MODEL_GROUPS, models_for_group
 from shawaf_vlm.models.registry import all_specs, build_encoder
+from shawaf_vlm.data.local_annotations import tracklet_preview_media_path
 from shawaf_vlm.retrieval.cache import index_dir, load_numpy_index
 from shawaf_vlm.retrieval.datasets import tier_a_and_local_datasets, dataset_status
 from shawaf_vlm.retrieval.search import top_k_tracklets
@@ -133,6 +134,11 @@ def _load_tracklets(model: str, dataset: str):
 
 _VIDEO_SUFFIXES = {".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"}
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+
+def _gallery_media_path(stored_path: str) -> str:
+    preview = tracklet_preview_media_path([stored_path])
+    return str(preview) if preview is not None else stored_path
 
 
 def _gradio_file_url(path: str) -> str:
@@ -355,7 +361,7 @@ def search_ui(
         lines.append(
             f"| {rank} | {t.tracklet_id} | {fused:.4f} | {g_score:.4f} | {l_score:.4f} |"
         )
-        gallery.append((t.media_path, f"#{rank} {t.tracklet_id} ({fused:.3f})"))
+        gallery.append((_gallery_media_path(t.media_path), f"#{rank} {t.tracklet_id} ({fused:.3f})"))
     table_md = "\n".join(lines) if len(lines) > 2 else "_No results._"
     return table_md, status, _gallery_html(gallery)
 

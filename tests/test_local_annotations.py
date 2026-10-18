@@ -51,6 +51,8 @@ def test_prepare_and_load(tmp_path: Path) -> None:
     splits = load_local_annotations("demo_vid", root=dest)
     assert len(splits.gallery) == 1
     assert splits.gallery[0].crop_paths[0].is_file()
+    preview = splits.gallery[0].crop_paths[0].parent / "preview.mp4"
+    assert preview.is_file()
     assert splits.query[0].text == "red shirt pedestrian"
 
 

@@ -13,6 +13,7 @@ from shawaf_vlm.data.tv_mars import CaptionQuery, GalleryTracklet, TVMarsSplits
 PREPARED_DIRNAME = "shawaf_annotations"
 METADATA_SUBDIR = "metadata"
 PREPARED_SUBDIR = "prepared"
+PREVIEW_FILENAME = "preview.mp4"
 SPLIT_NAME = "test"
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -127,6 +128,7 @@ def prepare_project(
     slug = slugify(project_dir.name)
     out_project = dest_root / PREPARED_SUBDIR / slug
     rows: list[dict[str, object]] = []
+    sample_fps = _project_sample_fps(project_dir)
 
     from PIL import Image
 
@@ -161,6 +163,10 @@ def prepare_project(
 
         if not crop_paths:
             continue
+        preview_path = track_dir / PREVIEW_FILENAME
+        crop_abs = [dest_root / rel for rel in crop_paths]
+        if overwrite or not preview_path.is_file():
+            write_tracklet_preview_mp4(crop_abs, preview_path, fps=sample_fps)
         tracklet_id = f"{slug}/{reid_id}"
         row: dict[str, object] = {
             "subset": slug,
@@ -170,6 +176,8 @@ def prepare_project(
             "crops": crop_paths,
             "captions": [caption] if caption else [],
         }
+        if preview_path.is_file():
+            row["preview"] = preview_path.relative_to(dest_root).as_posix()
         rows.append(row)
 
     if not rows:
@@ -306,6 +314,67 @@ def local_annotations_status() -> str:
         n = len(list_annotation_projects(src))
         return f"source_only ({n} projects — run prepare_local_annotations.py)"
     return "missing"
+
+
+def tracklet_preview_media_path(
+    crop_paths: tuple[Path, ...] | list[Path] | list[str] | tuple[str, ...],
+) -> Path | None:
+    """Demo/index preview: ``preview.mp4`` next to crop JPEGs, if present."""
+
+    if not crop_paths:
+        return None
+    preview = Path(crop_paths[0]).parent / PREVIEW_FILENAME
+    return preview if preview.is_file() else None
+
+
+def write_tracklet_preview_mp4(
+    crop_paths: list[Path],
+    out_path: Path,
+    *,
+    fps: float = 10.0,
+) -> bool:
+    """Stitch person crops into a short mp4 for the Gradio gallery."""
+
+    import cv2
+
+    if fps <= 0:
+        fps = 10.0
+    if not crop_paths:
+        return False
+    frames: list = []
+    for path in crop_paths:
+        frame = cv2.imread(str(path))
+        if frame is not None:
+            frames.append(frame)
+    if not frames:
+        return False
+    height, width = frames[0].shape[:2]
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    writer = cv2.VideoWriter(
+        str(out_path),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        (width, height),
+    )
+    if not writer.isOpened():
+        return False
+    for frame in frames:
+        if frame.shape[0] != height or frame.shape[1] != width:
+            frame = cv2.resize(frame, (width, height))
+        writer.write(frame)
+    writer.release()
+    return out_path.is_file() and out_path.stat().st_size > 0
+
+
+def _project_sample_fps(project_dir: Path) -> float:
+    ann_path = project_dir / "annotations.json"
+    if not ann_path.is_file():
+        return 10.0
+    try:
+        payload = json.loads(ann_path.read_text(encoding="utf-8"))
+        return float(payload.get("sampleFps", 10.0))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return 10.0
 
 
 def _save_crop(

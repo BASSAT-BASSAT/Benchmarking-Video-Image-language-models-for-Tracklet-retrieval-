@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from shawaf_vlm.data.local_annotations import tracklet_preview_media_path
 from shawaf_vlm.data.tv_mars import TVMarsSplits
 from shawaf_vlm.eval_loop import _group_clip_features, _prepare_window_gallery
 from shawaf_vlm.models.protocol import VideoTextEncoder
@@ -58,7 +59,11 @@ def encode_gallery_tracklets(
     for index, (clips, tracklet) in enumerate(zip(grouped, splits.gallery, strict=True)):
         if index >= len(gallery_pids):
             break
-        media = str(tracklet.crop_paths[0]) if tracklet.crop_paths else ""
+        preview = tracklet_preview_media_path(list(tracklet.crop_paths))
+        if preview is not None:
+            media = str(preview)
+        else:
+            media = str(tracklet.crop_paths[0]) if tracklet.crop_paths else ""
         out.append(
             TrackletVectors(
                 tracklet_id=tracklet.track_id,
