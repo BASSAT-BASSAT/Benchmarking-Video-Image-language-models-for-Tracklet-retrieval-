@@ -9,6 +9,7 @@ from pathlib import Path
 from shawaf_vlm.data.groot import load_groot
 from shawaf_vlm.data.rstpreid import discover_local_rstpreid, download_rstpreid, load_rstpreid
 from shawaf_vlm.data.tv_mars import TVMarsSplits
+from shawaf_vlm.data.local_annotations import list_prepared_configs, local_annotations_status
 from shawaf_vlm.data.tvpreid import download_tvpreid, load_tvpreid
 
 
@@ -23,6 +24,8 @@ class DatasetSpec:
 # Families run by kaggle-zero-shot.ipynb / embeddinggemma2_tier_a_zero_shot.ipynb
 TIER_A_ZERO_SHOT_FAMILIES: tuple[str, ...] = ("tvpreid", "rstpreid", "groot_mot17")
 
+LOCAL_ANNOTATIONS_FAMILY = "local"
+
 TIER_A_DATASETS: tuple[DatasetSpec, ...] = (
     DatasetSpec("tvpreid:prid", "TVPReid PRID", "prid", "video"),
     DatasetSpec("tvpreid:ilids", "TVPReid iLIDS", "ilids", "video"),
@@ -33,6 +36,26 @@ TIER_A_DATASETS: tuple[DatasetSpec, ...] = (
     DatasetSpec("groot:action", "GroOT-MOT17 action", "action", "video"),
     DatasetSpec("groot:all", "GroOT-MOT17 all", "all", "video"),
 )
+
+
+def tier_a_and_local_datasets() -> tuple[DatasetSpec, ...]:
+    """Tier-A benchmarks plus prepared local annotation configs (``local:<slug>``)."""
+
+    extra: list[DatasetSpec] = []
+    for config in list_prepared_configs():
+        if config == "all":
+            label = "Local annotations (all projects)"
+        else:
+            label = f"Local annotations — {config.replace('_', ' ')}"
+        extra.append(
+            DatasetSpec(
+                f"{LOCAL_ANNOTATIONS_FAMILY}:{config}",
+                label,
+                config,
+                "image",
+            )
+        )
+    return TIER_A_DATASETS + tuple(extra)
 
 
 def parse_dataset_key(key: str) -> tuple[str, str]:
@@ -77,6 +100,11 @@ def load_splits(
                 download_groot(configs=(subset,), split=split, token=token)
         return load_groot(config=subset, split=split, root=root, token=token)
 
+    if family == LOCAL_ANNOTATIONS_FAMILY:
+        from shawaf_vlm.data.local_annotations import load_local_annotations
+
+        return load_local_annotations(config=subset, split=split, root=root)
+
     raise ValueError(f"Unknown dataset family {family!r}")
 
 
@@ -91,4 +119,5 @@ def dataset_status() -> dict[str, str]:
         "tvpreid": tv,
         "groot": groot,
         "rstpreid": rstp,
+        "local_annotations": local_annotations_status(),
     }

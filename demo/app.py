@@ -17,7 +17,7 @@ import numpy as np
 from shawaf_vlm.models.groups import MODEL_GROUPS, models_for_group
 from shawaf_vlm.models.registry import all_specs, build_encoder
 from shawaf_vlm.retrieval.cache import index_dir, load_numpy_index
-from shawaf_vlm.retrieval.datasets import TIER_A_DATASETS, dataset_status
+from shawaf_vlm.retrieval.datasets import tier_a_and_local_datasets, dataset_status
 from shawaf_vlm.retrieval.search import top_k_tracklets
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -47,7 +47,7 @@ def _model_choices() -> list[str]:
 
 
 def _dataset_choices() -> list[str]:
-    return [d.key for d in TIER_A_DATASETS]
+    return [d.key for d in tier_a_and_local_datasets()]
 
 
 def _has_index(model: str, dataset: str) -> bool:
@@ -69,9 +69,15 @@ def _default_model() -> str:
 
 
 def _default_dataset(model: str) -> str:
+    for prefer in ("local:all",):
+        if prefer in _dataset_choices() and _has_index(model, prefer):
+            return prefer
     for dataset in _dataset_choices():
         if _has_index(model, dataset):
             return dataset
+    for prefer in ("local:all",):
+        if prefer in _dataset_choices():
+            return prefer
     return "tvpreid:prid"
 
 
@@ -81,12 +87,16 @@ def _status_markdown() -> str:
         f"- **TVPReid (HF):** {'✅ on disk' if st['tvpreid'] == 'ready' else '⚠️ missing'}",
         f"- **GroOT-MOT17 (HF):** {'✅ on disk' if st['groot'] == 'ready' else '⚠️ missing'}",
         f"- **RSTPReid (Google Drive):** {'✅ on disk' if st['rstpreid'] == 'ready' else '⚠️ missing'}",
+        f"- **Local Annotations:** {st.get('local_annotations', 'missing')}",
         "",
-        "Download data from the terminal (not in this UI):",
+        "Download Tier-A data from the terminal (not in this UI):",
         "`python scripts/download_tier_a.py`",
         "",
+        "Prepare manual annotations (repo `Annotations/`, gitignored):",
+        "`python scripts/prepare_local_annotations.py`",
+        "",
         "Then build an index:",
-        "`python scripts/index_qdrant.py --model siglip2 --dataset tvpreid:prid`",
+        "`python scripts/index_qdrant.py --model pe_core_l14 --dataset local:all --skip-qdrant --no-download`",
     ]
     return "\n".join(lines)
 
@@ -282,6 +292,7 @@ def _allowed_media_paths() -> list[str]:
     """Gradio must allow serving dataset videos and cached assets."""
     roots = [
         REPO_ROOT / "datasets",
+        REPO_ROOT / "Annotations",
         Path.home() / ".cache" / "shawaf_vlm",
     ]
     env = os.environ.get("SHAWAF_DATA_ROOT")
@@ -300,6 +311,7 @@ def build_index_ui(model: str, dataset: str) -> str:
         "--dataset",
         dataset,
         "--skip-qdrant",
+        "--no-download",
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(REPO_ROOT))
     log = proc.stdout + proc.stderr

@@ -47,8 +47,8 @@ def main() -> None:
     cache_root = args.cache_root or default_cache_root()
     out_dir = index_dir(cache_root, args.model, args.dataset)
 
-    if not args.no_download:
-        family = args.dataset.split(":", 1)[0]
+    family = args.dataset.split(":", 1)[0]
+    if not args.no_download and family != "local":
         ensure_tier_a_datasets(
             tvpreid=family == "tvpreid",
             groot=family == "groot",

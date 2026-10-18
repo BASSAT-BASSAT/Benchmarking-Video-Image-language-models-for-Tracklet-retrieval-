@@ -22,6 +22,7 @@ logs/
 .ipynb_checkpoints/
 
 datasets/
+Annotations/
 InternVideo/
 MARS/
 bbox_train/
