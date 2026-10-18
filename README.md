@@ -28,24 +28,28 @@ the target benchmark. Values are **Rank-1 / mAP** unless stated otherwise.
 | Clothing-based street-track retrieval (GroOT appearance) | **SigLIP 2**: 25.58 | Appearance is discriminative; broad image-language pretraining is competitive. |
 | Long-video event retrieval (ActivityNet paragraph) | **InternVideo2 CLIP-S**: 69.80 / 80.24 | Video-language pretraining and temporal coverage matter for whole events. |
 | Long-video event retrieval (ActivityNet sentence) | **Perception Encoder**: 41.91 / 54.83 | Frame-level semantic alignment is strongest for short event descriptions. |
-| Best extended model on TVPReid | **Qwen3-VL-Embedding-2B**: 24.65 / 37.00 on PRID | Newer general embeddings help, but still do not beat task-specific IRRA. |
-| EmbeddingGemma 2 on TVPReid PRID | **42.25 / 55.52** (query_max windows) | Beats Perception Encoder and Qwen3 on PRID, still far below IRRA. |
+| Best general encoder on TVPReid (no IRRA) | **EmbeddingGemma 2**: 42.25 / 55.52 on PRID | Strongest Tier-A result among general VLMs tested; still far below IRRA. |
+| Best prior extended VLM on TVPReid | **Qwen3-VL-Embedding-2B**: 24.65 / 37.00 on PRID | Superseded on PRID by EmbeddingGemma 2 in our Tier-A run. |
 
 ### Practical model recommendations
 
 - **Use IRRA for person-search descriptions.** It is the clear TVPReid and
   RSTPReid winner and is also among the most efficient accurate choices.
+- **Use EmbeddingGemma 2 for the strongest general text→tracklet baseline on
+  TVPReid** (especially Duke/PRID) when IRRA is out of scope. Run the
+  dedicated notebook / `embeddinggemma2` extra — not the Kaggle `base` group.
 - **Use Perception Encoder for a balanced general-purpose baseline.** It is
   the best ActivityNet sentence model, wins ActivityNet on mean Rank-1, and is
-  the strongest general model on GroOT combined captions.
+  the strongest general model on GroOT combined captions among the **base**
+  Kaggle group.
 - **Use InternVideo2 CLIP-S for long videos and paragraph-level events.** It
   is the ActivityNet paragraph winner; its video pretraining is useful when
   the query describes several events over time.
 - **Use SigLIP 2 when image/appearance evidence dominates.** It is the
   strongest RSTPReid general model and the best GroOT appearance model.
-- **Use Qwen3-VL-Embedding-2B as the most promising extended model.** It is
-  substantially better than the other extended models on TVPReid, especially
-  PRID, but it is slower and heavier than IRRA.
+- **Use Qwen3-VL-Embedding-2B** when you need a strong multimodal embedding
+  outside the EmbeddingGemma 2 environment; it trails EmbeddingGemma 2 on
+  TVPReid PRID in our numbers.
 - **Avoid choosing a model from speed alone.** X-CLIP is fast but consistently
   weak on retrieval quality; GME-Qwen2-VL-2B is expensive and does not close
   the gap to the task-specific baselines.
@@ -60,8 +64,9 @@ The gallery sizes are PRID 185, iLIDS 75, and Duke 603 tracklets.
 | Model | PRID | iLIDS | Duke |
 |---|---:|---:|---:|
 | **IRRA** | **66.55 / 76.09** | **30.00 / 41.29** | **38.06 / 50.79** |
-| SigLIP 2 So400m | 35.56 / 50.84 | 18.67 / 28.88 | 21.97 / 33.03 |
+| **EmbeddingGemma 2** † | **42.25 / 55.52** | 20.67 / 32.48 | **29.77 / 39.48** |
 | Perception Encoder L/14 | 38.38 / 52.04 | 19.33 / 32.55 | 17.66 / 28.12 |
+| SigLIP 2 So400m | 35.56 / 50.84 | 18.67 / 28.88 | 21.97 / 33.03 |
 | InternVideo2 CLIP-S | 32.39 / 43.77 | 13.33 / 24.14 | 18.49 / 28.36 |
 | Qwen3-VL-Embedding-2B | 24.65 / 37.00 | 11.33 / 21.37 | 13.18 / 22.73 |
 | LanguageBind | 16.20 / 24.82 | 12.67 / 22.09 | 7.30 / 14.46 |
@@ -70,21 +75,25 @@ The gallery sizes are PRID 185, iLIDS 75, and Duke 603 tracklets.
 | Jina CLIP v2 | 7.75 / 14.41 | 11.33 / 19.47 | 4.15 / 9.80 |
 | X-CLIP | 4.93 / 10.05 | 5.33 / 10.52 | 1.41 / 3.95 |
 | InternVideo2-1B-s2 | 4.23 / 10.78 | 4.00 / 10.26 | 1.82 / 4.15 |
-| EmbeddingGemma 2 | 42.25 / 55.52 | 20.67 / 32.48 | 29.77 / 39.48† |
 
-†EmbeddingGemma 2: best **Rank-1 / mAP** on PRID and iLIDS from `reid_8fps_n64`
-(query_max / uniform8); Duke **uniform8** only (`reid_8fps_n64` interrupted on
-Kaggle). Full pooling grid:
-[`results/checkpoints/embeddinggemma2_tier_a_v1.csv`](results/checkpoints/embeddinggemma2_tier_a_v1.csv).
-Runs in [`notebooks/embeddinggemma2_tier_a_zero_shot.ipynb`](notebooks/embeddinggemma2_tier_a_zero_shot.ipynb).
+†EmbeddingGemma 2 (separate env): best **Rank-1 / mAP** per subset from
+[`results/checkpoints/embeddinggemma2_tier_a_v1.csv`](results/checkpoints/embeddinggemma2_tier_a_v1.csv)
+(PRID/iLIDS include `reid_8fps_n64` pools; Duke **uniform8** only until window
+protocol finishes on Kaggle). Notebook:
+[`notebooks/embeddinggemma2_tier_a_zero_shot.ipynb`](notebooks/embeddinggemma2_tier_a_zero_shot.ipynb).
 
 **Why the gap?** IRRA was trained for text-to-person retrieval, so its
 embedding space is aligned with clothing, body, and identity descriptions.
 General video-language models learn events and actions rather than fine-grained
-person identity. Qwen3 is the strongest of the newer general encoders, but
-specialization still matters more than parameter count.
+person identity. **EmbeddingGemma 2** is the strongest general encoder on
+TVPReid in our Tier-A run, but specialization (IRRA) still matters more than
+parameter count.
 
 ![Rank-1 across test sets](assets/rank1_heatmap.png)
+
+*Heatmap includes all base/extended models plus **EmbeddingGemma 2 \*** (best
+Rank-1 per column from the CSV above). Regenerate after new runs:*
+`python scripts/make_figures.py`
 
 ### RSTPReid: person descriptions and still images
 
@@ -96,6 +105,7 @@ identities.
 | **IRRA** | **53.30 / 39.71** |
 | SigLIP 2 So400m | 41.00 / 29.34 |
 | Perception Encoder L/14 | 37.40 / 29.09 |
+| EmbeddingGemma 2 † | 35.30 / 24.97 |
 | Qwen3-VL-Embedding-2B | 30.05 / 21.72 |
 | InternVideo2 CLIP-S | 27.00 / 21.34 |
 | LanguageBind | 15.55 / 11.36 |
@@ -103,7 +113,6 @@ identities.
 | OpenAI CLIP ViT-L/14 | 11.05 / 8.21 |
 | InternVideo2-1B-s2 | 5.15 / 4.53 |
 | X-CLIP | 1.40 / 2.26 |
-| EmbeddingGemma 2 | 35.30 / 24.97 |
 
 The ordering supports the TVPReid conclusion: image-language pretraining helps
 more than video pretraining when there is no temporal signal, but task-specific
@@ -119,6 +128,7 @@ descriptions, and a cleaned sentence containing both.
 | Perception Encoder L/14 | 25.29 | 3.30 | **29.36** |
 | IRRA | 24.71 | 2.20 | **29.36** |
 | **SigLIP 2 So400m** | **25.58** | 2.20 | 27.91 |
+| EmbeddingGemma 2 † | 21.80 | 1.98 | 26.45 |
 | InternVideo2 CLIP-S | 19.19 | 2.64 | 24.71 |
 | Qwen3-VL-Embedding-2B | 20.06 | **3.52** | 22.38 |
 | LanguageBind | 14.83 | 2.20 | 16.28 |
@@ -126,7 +136,6 @@ descriptions, and a cleaned sentence containing both.
 | Jina CLIP v2 | 11.92 | 1.32 | 8.14 |
 | X-CLIP | 2.62 | 0.44 | 2.91 |
 | InternVideo2-1B-s2 | 0.87 | 0.66 | 1.45 |
-| EmbeddingGemma 2 | 21.80 | 1.98 | 26.45 |
 
 Action Rank-1 is only 0.44–3.52 because the action captions are highly
 repetitive: only 112 of 454 are unique, and “a person walking on the street”
@@ -136,6 +145,9 @@ improves both leading models. The reviewed combined captions are stored in
 [`shawaf_vlm/data/groot_mot17_combined.json`](shawaf_vlm/data/groot_mot17_combined.json).
 
 ![GroOT caption types](assets/groot_caption_types.png)
+
+*GroOT bar chart uses the same best-setting Rank-1 values (including
+EmbeddingGemma 2 †).*
 
 ### ActivityNet Captions: general long-video events
 
@@ -187,12 +199,15 @@ and GroOT-MOT17 appearance and combined queries. GroOT action is excluded
 because its highly repetitive captions create a dataset ceiling rather than a
 meaningful model comparison. Timings were collected in the benchmark runs and
 are hardware/runtime-specific, so the chart is a practical trade-off view, not
-a universal speed ranking.
+a universal speed ranking. **EmbeddingGemma 2** appears on the heatmap and GroOT
+bars but not here until we log T4 `video_ms_per_item` for that notebook.
 
-The extended checkpoint contains all **156 completed configurations** for
-OpenAI CLIP ViT-L/14, Jina CLIP v2, GME-Qwen2-VL-2B, and
-Qwen3-VL-Embedding-2B across PRID, iLIDS, and Duke:
-[`results/checkpoints/extended_zero_shot_4models_3datasets_v1.csv`](results/checkpoints/extended_zero_shot_4models_3datasets_v1.csv).
+Checkpoint CSVs (figures via `python scripts/make_figures.py`):
+
+- Extended TVPReid subset — **156** configs:
+  [`extended_zero_shot_4models_3datasets_v1.csv`](results/checkpoints/extended_zero_shot_4models_3datasets_v1.csv)
+- **EmbeddingGemma 2** Tier-A (partial):
+  [`embeddinggemma2_tier_a_v1.csv`](results/checkpoints/embeddinggemma2_tier_a_v1.csv)
 
 ### Repository layout
 
