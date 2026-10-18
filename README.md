@@ -87,8 +87,9 @@ Not published ActivityNet numbers — frozen encoders on a fixed sample.
 Mean Rank-1 over TVPReid (3), RSTPReid, GroOT appearance + combined (action
 excluded). Regenerate figures: `python scripts/make_figures.py`.
 
-Full grids for weaker or partial runs live in the notebooks and checkpoint CSVs;
-they are omitted here to keep the headline tables readable.
+**All models (including X-CLIP, LanguageBind, extended VLMs, and partial runs):**
+[`docs/full_benchmark_scores.md`](docs/full_benchmark_scores.md) and the
+checkpoint CSVs under `results/checkpoints/`.
 
 ## Demo (Gradio)
 
@@ -129,7 +130,7 @@ Pooling: `mean` (global), `query_max` (best window), `global_local` (hybrid α).
 | [`shawaf_vlm/`](shawaf_vlm/) | Library: data, models, retrieval, eval |
 | [`scripts/`](scripts/README.md) | Download, index, figures, annotations prep |
 | [`notebooks/`](notebooks/) | Kaggle/Colab benchmarks |
-| [`docs/`](docs/ARCHITECTURE.md) | Architecture, [environments](docs/ENVIRONMENTS.md) |
+| [`docs/`](docs/ARCHITECTURE.md) | Architecture, [environments](docs/ENVIRONMENTS.md), [full scores](docs/full_benchmark_scores.md) |
 
 **Notebooks:** [`kaggle-zero-shot.ipynb`](notebooks/kaggle-zero-shot.ipynb) (base group),
 [`embeddinggemma2_tier_a_zero_shot.ipynb`](notebooks/embeddinggemma2_tier_a_zero_shot.ipynb),
