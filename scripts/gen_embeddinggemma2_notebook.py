@@ -211,19 +211,33 @@ def run_one(encoder, model, dataset, subset, spec):
 
 ensure_cuda_healthy(DEVICE)
 
+def job_allowed(dataset, subset, spec):
+    if RUN_SUBSET_FILTER is not None and (dataset, subset) not in RUN_SUBSET_FILTER:
+        return False
+    if RUN_PROTOCOLS is not None and spec["name"] not in RUN_PROTOCOLS:
+        return False
+    return True
+
+
 for model in MODELS:
     jobs = [
         (dataset, spec, subset)
         for dataset in RUN_DATASETS
         for spec in protocols_for(model, dataset)
         for subset in DATASETS[dataset]["subsets"]
+        if job_allowed(dataset, subset, spec)
     ]
-    todo = [
-        job
-        for job in jobs
-        if not all(is_complete(p) for p in expected_paths(job[0], model, job[2], job[1]))
-    ]
+    if RESUME_COMPLETE:
+        todo = [
+            job
+            for job in jobs
+            if not all(is_complete(p) for p in expected_paths(job[0], model, job[2], job[1]))
+        ]
+    else:
+        todo = list(jobs)
     print(f"\n######## {PRETTY.get(model, model)}: {len(todo)} of {len(jobs)} runs to do", flush=True)
+    for dataset, spec, subset in todo:
+        print(f"  pending: {dataset}/{subset} | {spec['name']}", flush=True)
     if not todo:
         continue
     try:
@@ -285,7 +299,9 @@ Same protocol as `kaggle-zero-shot.ipynb`: **TVPReid** (prid, ilids, duke), **RS
 
 Use a **separate** Python env from the `base` Kaggle group: `pip install -e ".[embeddinggemma2]"`. Restart the kernel if an older `transformers` was already imported.
 
-Results: `zero_shot_results/embeddinggemma2/`."""
+Results: `zero_shot_results/embeddinggemma2/`. Bundled partial runs: `results/checkpoints/embeddinggemma2_tier_a_v1.csv`.
+
+Re-run **§4** to continue; only **pending** jobs run when `RESUME_COMPLETE = True`."""
     ),
     md("## 1. Configuration"),
     code(
@@ -294,6 +310,14 @@ Results: `zero_shot_results/embeddinggemma2/`."""
 ENV_GROUP = "embeddinggemma2"
 MODELS = ["embeddinggemma2"]
 RUN_DATASETS = ["tvpreid", "rstpreid", "groot_mot17"]
+
+# Resume: skip jobs that already have status=complete JSON under RESULTS_DIR.
+RESUME_COMPLETE = True
+# Optional narrow filters (None = all). Example after an interrupt on Duke windows only:
+# RUN_SUBSET_FILTER = [("tvpreid", "duke")]
+# RUN_PROTOCOLS = ["reid_8fps_n64"]
+RUN_SUBSET_FILTER = None
+RUN_PROTOCOLS = None
 
 DATASETS = {
     "tvpreid": {"label": "TVPReid", "subsets": ["prid", "ilids", "duke"], "protocols": "video"},

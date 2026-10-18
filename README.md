@@ -29,6 +29,7 @@ the target benchmark. Values are **Rank-1 / mAP** unless stated otherwise.
 | Long-video event retrieval (ActivityNet paragraph) | **InternVideo2 CLIP-S**: 69.80 / 80.24 | Video-language pretraining and temporal coverage matter for whole events. |
 | Long-video event retrieval (ActivityNet sentence) | **Perception Encoder**: 41.91 / 54.83 | Frame-level semantic alignment is strongest for short event descriptions. |
 | Best extended model on TVPReid | **Qwen3-VL-Embedding-2B**: 24.65 / 37.00 on PRID | Newer general embeddings help, but still do not beat task-specific IRRA. |
+| EmbeddingGemma 2 on TVPReid PRID | **42.25 / 55.52** (query_max windows) | Beats Perception Encoder and Qwen3 on PRID, still far below IRRA. |
 
 ### Practical model recommendations
 
@@ -69,6 +70,13 @@ The gallery sizes are PRID 185, iLIDS 75, and Duke 603 tracklets.
 | Jina CLIP v2 | 7.75 / 14.41 | 11.33 / 19.47 | 4.15 / 9.80 |
 | X-CLIP | 4.93 / 10.05 | 5.33 / 10.52 | 1.41 / 3.95 |
 | InternVideo2-1B-s2 | 4.23 / 10.78 | 4.00 / 10.26 | 1.82 / 4.15 |
+| EmbeddingGemma 2 | 42.25 / 55.52 | 20.67 / 32.48 | 29.77 / 39.48† |
+
+†EmbeddingGemma 2: best **Rank-1 / mAP** on PRID and iLIDS from `reid_8fps_n64`
+(query_max / uniform8); Duke **uniform8** only (`reid_8fps_n64` interrupted on
+Kaggle). Full pooling grid:
+[`results/checkpoints/embeddinggemma2_tier_a_v1.csv`](results/checkpoints/embeddinggemma2_tier_a_v1.csv).
+Runs in [`notebooks/embeddinggemma2_tier_a_zero_shot.ipynb`](notebooks/embeddinggemma2_tier_a_zero_shot.ipynb).
 
 **Why the gap?** IRRA was trained for text-to-person retrieval, so its
 embedding space is aligned with clothing, body, and identity descriptions.
@@ -95,6 +103,7 @@ identities.
 | OpenAI CLIP ViT-L/14 | 11.05 / 8.21 |
 | InternVideo2-1B-s2 | 5.15 / 4.53 |
 | X-CLIP | 1.40 / 2.26 |
+| EmbeddingGemma 2 | 35.30 / 24.97 |
 
 The ordering supports the TVPReid conclusion: image-language pretraining helps
 more than video pretraining when there is no temporal signal, but task-specific
@@ -117,6 +126,7 @@ descriptions, and a cleaned sentence containing both.
 | Jina CLIP v2 | 11.92 | 1.32 | 8.14 |
 | X-CLIP | 2.62 | 0.44 | 2.91 |
 | InternVideo2-1B-s2 | 0.87 | 0.66 | 1.45 |
+| EmbeddingGemma 2 | 21.80 | 1.98 | 26.45 |
 
 Action Rank-1 is only 0.44–3.52 because the action captions are highly
 repetitive: only 112 of 454 are unique, and “a person walking on the street”
