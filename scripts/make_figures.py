@@ -5,12 +5,14 @@ executed notebooks:
 
 - base group: one session with tvpreid + rstpreid + groot_mot17
 - extended_modern: two sessions (groot_mot17 / tvpreid + rstpreid)
+- embeddinggemma2: `results/checkpoints/embeddinggemma2_tier_a_v1.csv` (best pool/protocol per subset)
 
 Run:  python scripts/make_figures.py   ->  assets/*.png
 """
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 
 import matplotlib
@@ -19,7 +21,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-ASSETS = Path(__file__).resolve().parents[1] / "assets"
+ROOT = Path(__file__).resolve().parents[1]
+ASSETS = ROOT / "assets"
+GEMMA_CSV = ROOT / "results" / "checkpoints" / "embeddinggemma2_tier_a_v1.csv"
 ASSETS.mkdir(exist_ok=True)
 
 plt.rcParams.update({"figure.dpi": 150, "savefig.dpi": 150, "font.size": 10})
@@ -27,7 +31,7 @@ plt.rcParams.update({"figure.dpi": 150, "savefig.dpi": 150, "font.size": 10})
 # Best-setting Rank-1 per test set, ordered by the 6-set mean (action excluded).
 # Columns: PRID, iLIDS, Duke, RSTPReid, GroOT appearance, GroOT action, GroOT combined.
 # GME-Qwen2-VL-2B (dagger) ran on TVPReid only; missing sets are NaN.
-RANK1 = {
+RANK1: dict[str, list[float]] = {
     "IRRA": [66.55, 30.00, 38.06, 53.30, 24.71, 2.20, 29.36],
     "SigLIP 2 So400m": [35.56, 18.67, 21.97, 41.00, 25.58, 2.20, 27.91],
     "Perception Encoder L/14": [38.38, 19.33, 17.66, 37.40, 25.29, 3.30, 29.36],
@@ -56,6 +60,37 @@ MS_PER_CLIP = {
     "InternVideo2-1B-s2": 267.11,
 }
 
+_GEMMA_KEYS = (
+    ("tvpreid", "prid"),
+    ("tvpreid", "ilids"),
+    ("tvpreid", "duke"),
+    ("rstpreid", "test"),
+    ("groot_mot17", "appearance"),
+    ("groot_mot17", "action"),
+    ("groot_mot17", "combined"),
+)
+
+
+def _load_embeddinggemma_rank1() -> list[float]:
+    """Best Rank-1 per heatmap column from the bundled EmbeddingGemma 2 CSV."""
+
+    if not GEMMA_CSV.is_file():
+        raise FileNotFoundError(f"Missing {GEMMA_CSV}; run EmbeddingGemma notebook or restore CSV.")
+    bests: dict[tuple[str, str], float] = {}
+    with GEMMA_CSV.open(newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            key = (row["dataset"], row["subset"])
+            value = float(row["Rank-1"])
+            bests[key] = max(bests.get(key, value), value)
+    return [bests[key] for key in _GEMMA_KEYS]
+
+
+def _merge_embeddinggemma() -> None:
+    label = "EmbeddingGemma 2 *"
+    values = _load_embeddinggemma_rank1()
+    RANK1[label] = values
+    EXTENDED.add(label)
+
 
 def mean_six(name: str) -> float:
     values = [v for v in RANK1[name][:5] + [RANK1[name][6]] if not np.isnan(v)]
@@ -67,7 +102,7 @@ def heatmap() -> None:
     matrix = np.ma.masked_invalid(np.array([RANK1[name] for name in names]))
     cmap = matplotlib.colormaps["YlGnBu"].copy()
     cmap.set_bad("#e6e6e6")
-    fig, ax = plt.subplots(figsize=(9.8, 5.4))
+    fig, ax = plt.subplots(figsize=(10.2, 5.8))
     image = ax.imshow(matrix, cmap=cmap, aspect="auto", vmin=0, vmax=70)
     ax.set_xticks(range(len(COLUMNS)))
     ax.set_xticklabels(COLUMNS, fontsize=9)
@@ -79,12 +114,20 @@ def heatmap() -> None:
                 ax.text(j, i, "\u2014", ha="center", va="center", fontsize=8, color="0.35")
             else:
                 ax.text(
-                    j, i, f"{value:.2f}", ha="center", va="center", fontsize=7.5,
+                    j,
+                    i,
+                    f"{value:.2f}",
+                    ha="center",
+                    va="center",
+                    fontsize=7.5,
                     color="white" if value > 32 else "#1a1a1a",
                 )
     for x in (2.5, 3.5):
         ax.axvline(x, color="0.25", lw=1.4)
-    ax.set_title("Zero-shot text-to-tracklet Rank-1, best setting per model (Kaggle / Colab T4)", fontsize=11)
+    ax.set_title(
+        "Zero-shot text-to-tracklet Rank-1, best setting per model (Kaggle / Colab T4)",
+        fontsize=11,
+    )
     fig.colorbar(image, ax=ax, label="Rank-1 (%)", shrink=0.85)
     fig.tight_layout()
     fig.savefig(ASSETS / "rank1_heatmap.png", bbox_inches="tight")
@@ -98,7 +141,7 @@ def groot_bars() -> None:
     combined = [RANK1[n][6] for n in order]
     y = np.arange(len(order))[::-1]
     height = 0.26
-    fig, ax = plt.subplots(figsize=(9, 6.4))
+    fig, ax = plt.subplots(figsize=(9.2, 6.8))
     ax.barh(y + height, appearance, height=height, color="#4C72B0", label="appearance")
     ax.barh(y, action, height=height, color="#C44E52", label="action")
     ax.barh(y - height, combined, height=height, color="#55A868", label="combined")
@@ -120,32 +163,59 @@ def groot_bars() -> None:
 def speed_scatter() -> None:
     fig, ax = plt.subplots(figsize=(8.2, 5.2))
     for label, color, names in (
-        ("base", "#4C72B0", [n for n in RANK1 if n not in EXTENDED]),
-        ("extended (Colab/Kaggle)", "#DD8452", [n for n in RANK1 if n in EXTENDED]),
+        ("base", "#4C72B0", [n for n in RANK1 if n not in EXTENDED and n in MS_PER_CLIP]),
+        ("extended (Colab/Kaggle)", "#DD8452", [n for n in RANK1 if n in EXTENDED and n in MS_PER_CLIP]),
     ):
+        if not names:
+            continue
         ax.scatter(
-            [MS_PER_CLIP[n] for n in names], [mean_six(n) for n in names],
-            s=95, color=color, label=label, edgecolor="white", zorder=3,
+            [MS_PER_CLIP[n] for n in names],
+            [mean_six(n) for n in names],
+            s=95,
+            color=color,
+            label=label,
+            edgecolor="white",
+            zorder=3,
         )
     short = {
-        "IRRA": "IRRA", "SigLIP 2 So400m": "SigLIP 2", "Perception Encoder L/14": "PE L/14",
-        "InternVideo2 CLIP-S": "IV2 CLIP-S", "Qwen3-VL-Embedding-2B *": "Qwen3-VL",
-        "LanguageBind": "LanguageBind", "OpenAI CLIP L/14 *": "CLIP L/14", "Jina CLIP v2 *": "Jina v2",
-        "GME-Qwen2-VL-2B \u2020": "GME-Qwen2", "X-CLIP": "X-CLIP", "InternVideo2-1B-s2": "IV2-1B-s2",
+        "IRRA": "IRRA",
+        "SigLIP 2 So400m": "SigLIP 2",
+        "Perception Encoder L/14": "PE L/14",
+        "InternVideo2 CLIP-S": "IV2 CLIP-S",
+        "Qwen3-VL-Embedding-2B *": "Qwen3-VL",
+        "LanguageBind": "LanguageBind",
+        "OpenAI CLIP L/14 *": "CLIP L/14",
+        "Jina CLIP v2 *": "Jina v2",
+        "GME-Qwen2-VL-2B \u2020": "GME-Qwen2",
+        "X-CLIP": "X-CLIP",
+        "InternVideo2-1B-s2": "IV2-1B-s2",
+        "EmbeddingGemma 2 *": "Emb. Gemma 2",
     }
-    # (dx, dy, ha) offsets keep the labels off each other.
     offsets = {
-        "IRRA": (8, 2, "left"), "X-CLIP": (8, -3, "left"), "InternVideo2-1B-s2": (8, 0, "left"),
-        "SigLIP 2 So400m": (8, 2, "left"), "Perception Encoder L/14": (-8, 7, "right"),
-        "InternVideo2 CLIP-S": (-8, 6, "right"), "Qwen3-VL-Embedding-2B *": (8, -4, "left"),
-        "LanguageBind": (8, 0, "left"), "OpenAI CLIP L/14 *": (8, 0, "left"), "Jina CLIP v2 *": (8, 0, "left"),
+        "IRRA": (8, 2, "left"),
+        "X-CLIP": (8, -3, "left"),
+        "InternVideo2-1B-s2": (8, 0, "left"),
+        "SigLIP 2 So400m": (8, 2, "left"),
+        "Perception Encoder L/14": (-8, 7, "right"),
+        "InternVideo2 CLIP-S": (-8, 6, "right"),
+        "Qwen3-VL-Embedding-2B *": (8, -4, "left"),
+        "LanguageBind": (8, 0, "left"),
+        "OpenAI CLIP L/14 *": (8, 0, "left"),
+        "Jina CLIP v2 *": (8, 0, "left"),
         "GME-Qwen2-VL-2B \u2020": (0, 9, "center"),
     }
     for name in RANK1:
-        dx, dy, ha = offsets[name]
+        if name not in MS_PER_CLIP:
+            continue
+        dx, dy, ha = offsets.get(name, (8, 0, "left"))
         ax.annotate(
-            short[name], (MS_PER_CLIP[name], mean_six(name)),
-            xytext=(dx, dy), textcoords="offset points", ha=ha, fontsize=8.5, color="0.1",
+            short.get(name, name),
+            (MS_PER_CLIP[name], mean_six(name)),
+            xytext=(dx, dy),
+            textcoords="offset points",
+            ha=ha,
+            fontsize=8.5,
+            color="0.1",
         )
     ax.set_xscale("log")
     ax.set_xlim(20, 4400)
@@ -161,7 +231,9 @@ def speed_scatter() -> None:
 
 
 if __name__ == "__main__":
+    _merge_embeddinggemma()
     heatmap()
     groot_bars()
     speed_scatter()
     print("wrote", *[p.name for p in sorted(ASSETS.glob("*.png"))])
+    print("EmbeddingGemma 2 Rank-1 column:", RANK1["EmbeddingGemma 2 *"])
