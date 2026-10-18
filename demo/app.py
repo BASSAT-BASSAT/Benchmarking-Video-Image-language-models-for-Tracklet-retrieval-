@@ -372,12 +372,12 @@ def build_demo():
     with gr.Blocks(title="SHAWAF tracklet retrieval") as demo:
         gr.Markdown(
             "# SHAWAF — text → tracklet retrieval\n"
-            "Frozen **text ↔ tracklet** search over a pre-built gallery index (Tier-A person/video benchmarks). "
-            "This is **not** open-world video QA: queries work best like the benchmark captions "
-            "(clothing, build, bag, colors). Action phrases (e.g. “eating lunch”) only help if the "
-            "encoder and frames support them.\n\n"
-            "Pooling **Type C** uses a global tracklet vector plus **best matching short window** "
-            "(weak temporal cue, not full event understanding). Rebuild the index after changing encoder."
+            "Frozen **text ↔ tracklet** search over a pre-built gallery index.\n\n"
+            "**Default encoder:** Perception Encoder L/14 (`pe_core_l14`) — balanced on TVPReid, "
+            "RSTPReid, and GroOT. Override with `SHAWAF_DEMO_MODEL` (e.g. `irra` for best person-search accuracy).\n\n"
+            "Queries work best like benchmark captions (clothing, build, colors). "
+            "**Type C** pooling mixes a global vector with the best 8-frame window. "
+            "Rebuild the index after changing encoder."
         )
         with gr.Row():
             with gr.Column(scale=1):
