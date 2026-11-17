@@ -115,10 +115,16 @@ class EmbeddingGemma2Encoder:
             )
             return np.asarray(vec[0], dtype=np.float32)
 
-        payloads: list[dict[str, str]] = []
+        prefit = getattr(self, "prefit", None)
+        payloads: list[dict[str, object]] = []
         for path in paths:
             suffix = path.suffix.lower()
-            if suffix in _IMAGE_SUFFIXES:
+            if suffix in _IMAGE_SUFFIXES and prefit is not None:
+                from PIL import Image
+
+                with Image.open(path) as image:
+                    payloads.append({"image": prefit(image.convert("RGB"))})
+            elif suffix in _IMAGE_SUFFIXES:
                 payloads.append({"image": str(path)})
             elif suffix in VIDEO_SUFFIXES:
                 raise RuntimeError(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,15 +34,19 @@ def encode_gallery_tracklets(
     max_frames: int = 64,
     batch_size: int = 4,
     frame_cache: Path | str | None = None,
+    timer=None,
+    select: str = "uniform",
 ) -> list[TrackletVectors]:
-    clip_groups, gallery_pids, _ = _prepare_window_gallery(
-        splits.gallery,
-        window=num_frames,
-        stride=stride,
-        sample_fps=sample_fps,
-        max_frames=max_frames,
-        frame_cache=frame_cache,
-    )
+    with timer.stage("decode") if timer is not None else nullcontext():
+        clip_groups, gallery_pids, _ = _prepare_window_gallery(
+            splits.gallery,
+            window=num_frames,
+            stride=stride,
+            sample_fps=sample_fps,
+            max_frames=max_frames,
+            frame_cache=frame_cache,
+            select=select,
+        )
     flat: list[list[Path]] = []
     owners: list[int] = []
     for track_index, windows in enumerate(clip_groups):

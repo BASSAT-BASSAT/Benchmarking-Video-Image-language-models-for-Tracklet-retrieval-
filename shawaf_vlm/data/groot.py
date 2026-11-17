@@ -70,13 +70,30 @@ def discover_local_groot() -> Path | None:
             if _looks_like_groot_root(match.parent.parent):
                 return match.parent.parent
 
+    repo_datasets = Path(__file__).resolve().parents[2] / "datasets" / "GroOT-MOT17"
     for candidate in (
+        repo_datasets,
         Path("/kaggle/working/GroOT-MOT17"),
         Path.home() / ".cache" / "shawaf_vlm" / "GroOT-MOT17",
     ):
-        if _looks_like_groot_root(candidate):
+        if _looks_like_groot_root(candidate) and _videos_complete(candidate):
             return candidate
     return None
+
+
+def _videos_complete(root: Path) -> bool:
+    """A partial download (metadata but missing mp4s) would silently shrink the gallery."""
+
+    import json
+
+    table = root / "metadata" / f"all-{SPLIT}.jsonl"
+    for line in table.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        video = json.loads(line).get("video")
+        if video and not (root / video).is_file():
+            return False
+    return True
 
 
 def download_groot(

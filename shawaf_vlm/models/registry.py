@@ -61,6 +61,78 @@ _SPECS: dict[str, EncoderSpec] = {
         builder="pe_core_l14",
         notes="Meta PE-Core, 336px, 32-token text, mean-pooled frames. Public.",
     ),
+    "pe_core_b16": EncoderSpec(
+        key="pe_core_b16",
+        label="Perception Encoder B/16",
+        checkpoint="timm/PE-Core-B-16",
+        builder="pe_core_b16",
+        notes="Smaller PE-Core distilled by Meta. 224px. Public.",
+    ),
+    "pe_core_s16": EncoderSpec(
+        key="pe_core_s16",
+        label="Perception Encoder S/16",
+        checkpoint="timm/PE-Core-S-16-384",
+        builder="pe_core_s16",
+        notes="Smaller PE-Core distilled by Meta. 384px. Public.",
+    ),
+    "pe_core_t16": EncoderSpec(
+        key="pe_core_t16",
+        label="Perception Encoder T/16",
+        checkpoint="timm/PE-Core-T-16-384",
+        builder="pe_core_t16",
+        notes="Smallest PE-Core distilled by Meta. 384px. Public.",
+    ),
+    "mobileclip2_s2": EncoderSpec(
+        key="mobileclip2_s2",
+        label="MobileCLIP2-S2",
+        checkpoint="timm/MobileCLIP2-S2-OpenCLIP",
+        builder="mobileclip2_s2",
+        notes=(
+            "BROKEN under open_clip 3.3 / timm 1.0.27: fails a zero-shot sanity check "
+            "(chance-level retrieval). Do not benchmark. apple-amlr licence."
+        ),
+    ),
+    "mobileclip2_s4": EncoderSpec(
+        key="mobileclip2_s4",
+        label="MobileCLIP2-S4",
+        checkpoint="timm/MobileCLIP2-S4-OpenCLIP",
+        builder="mobileclip2_s4",
+        notes=(
+            "BROKEN under open_clip 3.3 / timm 1.0.27: fails a zero-shot sanity check "
+            "(chance-level retrieval). Do not benchmark. apple-amlr licence."
+        ),
+    ),
+    "mobileclip2_b": EncoderSpec(
+        key="mobileclip2_b",
+        label="MobileCLIP2-B",
+        checkpoint="timm/MobileCLIP2-B-OpenCLIP",
+        builder="mobileclip2_b",
+        notes="Apple MobileCLIP2. apple-amlr licence; check before redistribution.",
+    ),
+    "eva02_clip_l14": EncoderSpec(
+        key="eva02_clip_l14",
+        label="EVA02-CLIP-L/14-336",
+        checkpoint="timm/eva02_large_patch14_clip_336.merged2b_s6b_b61k",
+        builder="eva02_clip_l14",
+        notes="General CLIP, same size class as PE-L. MIT licence.",
+    ),
+    "dfn_clip_l14": EncoderSpec(
+        key="dfn_clip_l14",
+        label="DFN2B-CLIP-L/14",
+        checkpoint="apple/DFN2B-CLIP-ViT-L-14",
+        builder="dfn_clip_l14",
+        notes="Apple data-filtering-network CLIP, 224px. apple-amlr licence.",
+    ),
+    "pe_core_distilled": EncoderSpec(
+        key="pe_core_distilled",
+        label="PE-Core distilled student",
+        checkpoint="SHAWAF_PE_DISTILLED",
+        builder="pe_core_distilled",
+        notes=(
+            "Local student checkpoint (env SHAWAF_PE_DISTILLED). Not in the default "
+            "benchmark groups. Text queries stay on pe_core_l14 when the file has no text tower."
+        ),
+    ),
     "irra": EncoderSpec(
         key="irra",
         label="IRRA ViT-B/16",
@@ -129,13 +201,35 @@ def all_specs() -> dict[str, EncoderSpec]:
     return dict(_SPECS)
 
 
-def build_encoder(name: str, device: str = "cuda") -> VideoTextEncoder:
+def build_encoder(
+    name: str,
+    device: str = "cuda",
+    image_size: int | None = None,
+    fit: str | None = None,
+) -> VideoTextEncoder:
+    """``image_size`` / ``fit`` (native, squash, letterbox) apply to PE-Core and MobileCLIP2."""
+
     spec = _SPECS.get(name)
     if spec is None:
         known = ", ".join(sorted(_SPECS))
         raise KeyError(f"Unknown encoder {name!r}. Choose one of: {known}")
     builder = _BUILDERS[spec.builder]
-    return builder(device=device)
+    kwargs = {key: value for key, value in (("image_size", image_size), ("fit", fit)) if value is not None}
+    if not kwargs:
+        return builder(device=device)
+    try:
+        return builder(device=device, **kwargs)
+    except TypeError as exc:
+        if image_size is not None:
+            raise ValueError(f"{name} does not take {', '.join(kwargs)}.") from exc
+    # Encoders with their own image processor: pad crops before that processor.
+    from shawaf_vlm.models.frame_encoders import make_prefit
+
+    prefit = make_prefit(fit)
+    encoder = builder(device=device)
+    encoder.prefit = prefit
+    encoder.fit = fit
+    return encoder
 
 
 def _build_xclip(device: str) -> VideoTextEncoder:
@@ -174,10 +268,64 @@ def _build_siglip2(device: str) -> VideoTextEncoder:
     return Siglip2Encoder(device=device)
 
 
-def _build_pe_core_l14(device: str) -> VideoTextEncoder:
+def _build_pe_core_l14(device: str, image_size: int | None = None, fit: str | None = None) -> VideoTextEncoder:
     from shawaf_vlm.models.frame_encoders import PerceptionEncoder
 
-    return PerceptionEncoder(device=device)
+    return PerceptionEncoder(device=device, image_size=image_size, fit=fit)
+
+
+def _build_pe_core_b16(device: str, image_size: int | None = None, fit: str | None = None) -> VideoTextEncoder:
+    from shawaf_vlm.models.frame_encoders import PeCoreB16Encoder
+
+    return PeCoreB16Encoder(device=device, image_size=image_size, fit=fit)
+
+
+def _build_pe_core_s16(device: str, image_size: int | None = None, fit: str | None = None) -> VideoTextEncoder:
+    from shawaf_vlm.models.frame_encoders import PeCoreS16Encoder
+
+    return PeCoreS16Encoder(device=device, image_size=image_size, fit=fit)
+
+
+def _build_pe_core_t16(device: str, image_size: int | None = None, fit: str | None = None) -> VideoTextEncoder:
+    from shawaf_vlm.models.frame_encoders import PeCoreT16Encoder
+
+    return PeCoreT16Encoder(device=device, image_size=image_size, fit=fit)
+
+
+def _build_mobileclip2_s2(device: str, image_size: int | None = None, fit: str | None = None) -> VideoTextEncoder:
+    from shawaf_vlm.models.frame_encoders import MobileClip2S2Encoder
+
+    return MobileClip2S2Encoder(device=device, image_size=image_size, fit=fit)
+
+
+def _build_mobileclip2_s4(device: str, image_size: int | None = None, fit: str | None = None) -> VideoTextEncoder:
+    from shawaf_vlm.models.frame_encoders import MobileClip2S4Encoder
+
+    return MobileClip2S4Encoder(device=device, image_size=image_size, fit=fit)
+
+
+def _build_mobileclip2_b(device: str, image_size: int | None = None, fit: str | None = None) -> VideoTextEncoder:
+    from shawaf_vlm.models.frame_encoders import MobileClip2BEncoder
+
+    return MobileClip2BEncoder(device=device, image_size=image_size, fit=fit)
+
+
+def _build_eva02_clip_l14(device: str, image_size: int | None = None, fit: str | None = None) -> VideoTextEncoder:
+    from shawaf_vlm.models.frame_encoders import Eva02ClipL14Encoder
+
+    return Eva02ClipL14Encoder(device=device, image_size=image_size, fit=fit)
+
+
+def _build_dfn_clip_l14(device: str, image_size: int | None = None, fit: str | None = None) -> VideoTextEncoder:
+    from shawaf_vlm.models.frame_encoders import DfnClipL14Encoder
+
+    return DfnClipL14Encoder(device=device, image_size=image_size, fit=fit)
+
+
+def _build_pe_core_distilled(device: str) -> VideoTextEncoder:
+    from shawaf_vlm.models.frame_encoders import DistilledPeEncoder
+
+    return DistilledPeEncoder(device=device)
 
 
 def _build_irra(device: str) -> VideoTextEncoder:
@@ -224,6 +372,15 @@ _BUILDERS: dict[str, Callable[..., VideoTextEncoder]] = {
     "internvideo2_s2_1b": _build_internvideo2_s2_1b,
     "siglip2": _build_siglip2,
     "pe_core_l14": _build_pe_core_l14,
+    "pe_core_b16": _build_pe_core_b16,
+    "pe_core_s16": _build_pe_core_s16,
+    "pe_core_t16": _build_pe_core_t16,
+    "mobileclip2_s2": _build_mobileclip2_s2,
+    "mobileclip2_s4": _build_mobileclip2_s4,
+    "mobileclip2_b": _build_mobileclip2_b,
+    "pe_core_distilled": _build_pe_core_distilled,
+    "eva02_clip_l14": _build_eva02_clip_l14,
+    "dfn_clip_l14": _build_dfn_clip_l14,
     "irra": _build_irra,
     "openai_clip_vit_l14": _build_openai_clip_vit_l14,
     "jina_clip_v2": _build_jina_clip_v2,

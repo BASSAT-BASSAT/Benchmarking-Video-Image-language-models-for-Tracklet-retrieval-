@@ -158,3 +158,23 @@ for path in sorted(RESULTS_DIR.rglob("*.json")):
 ```
 
 The EmbeddingGemma notebook §5 summary cell lists all **complete** rows in a table.
+
+---
+
+## Next: ingestion speed (not run yet)
+
+PE-Core L/14 indexing is the slow step. The code for a faster path is in the
+repo and covered by unit tests. **No profile, Tier-A sweep, TensorRT build, or
+distillation training has been run.** Do not quote a speedup until those jobs
+exist.
+
+Read [`docs/ingestion_speed.md`](../docs/ingestion_speed.md) and [`ingestion_speed.ipynb`](ingestion_speed.ipynb). In short, run later:
+
+1. `python scripts/index_qdrant.py --model pe_core_l14 --dataset local:all --skip-qdrant --no-download --profile`
+2. `scripts/eval_encoder.py` on `pe_core_b16`, `pe_core_s16`, `pe_core_t16`, `mobileclip2_s2`, `mobileclip2_s4`, `mobileclip2_b` (group `ingestion_fast`).
+3. `python scripts/export_vision_onnx.py --model pe_core_l14 --image-size 336 --out vision.onnx --trt` and then the printed `trtexec` line yourself. INT8 is `shawaf_vlm.optim` after `pip install -e ".[optim]"`.
+4. `python scripts/distill_pe.py --teacher pe_core_l14 --student pe_core_s16 --crops <person crops> --out runs/pe_student --dry-run` before any training.
+
+Keep a smaller checkpoint if it is within about 2 Rank-1 of PE-L. Accept INT8
+if the drop is under about 1 Rank-1. Distill only if that still is not enough.
+Do not train on Tier-A test splits.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
+from contextlib import nullcontext
 from pathlib import Path
 
 import numpy as np
@@ -119,6 +120,8 @@ def evaluate_text_to_tracklet_windows(
     junk_same_camera: bool = False,
     frame_cache: Path | str | None = None,
     hybrid_alpha: float = 0.5,
+    select: str = "uniform",
+    query_modes: Sequence[str] = ("raw",),
 ) -> dict[str, dict[str, float]]:
     """Encode sliding-window clips once, then score several pooling configs.
 
@@ -129,14 +132,17 @@ def evaluate_text_to_tracklet_windows(
     """
 
     t0 = time.perf_counter()
-    clip_groups, gallery_pids, gallery_camids = _prepare_window_gallery(
-        splits.gallery,
-        window=num_frames,
-        stride=stride,
-        sample_fps=sample_fps,
-        max_frames=max_frames,
-        frame_cache=frame_cache,
-    )
+    timer = getattr(encoder, "stage_timer", None)
+    with timer.stage("decode") if timer is not None else nullcontext():
+        clip_groups, gallery_pids, gallery_camids = _prepare_window_gallery(
+            splits.gallery,
+            window=num_frames,
+            stride=stride,
+            sample_fps=sample_fps,
+            max_frames=max_frames,
+            frame_cache=frame_cache,
+            select=select,
+        )
     query_texts, query_pids, query_camids = _prepare_queries(splits.query)
     decode_s = time.perf_counter() - t0
     if not clip_groups:
@@ -162,12 +168,62 @@ def evaluate_text_to_tracklet_windows(
     _cuda_sync()
     video_s = time.perf_counter() - t_video
     t_text = time.perf_counter()
-    text_features = encoder.encode_texts(query_texts, batch_size=text_batch_size)
+    text_by_mode: dict[str, np.ndarray] = {}
+    for mode in query_modes:
+        if mode == "raw":
+            text_by_mode[mode] = encoder.encode_texts(query_texts, batch_size=text_batch_size)
+        else:
+            from shawaf_vlm.query_text import encode_queries
+
+            text_by_mode[mode] = encode_queries(encoder, query_texts, mode, batch_size=text_batch_size)
     _cuda_sync()
     text_s = time.perf_counter() - t_text
     peak_gpu_gb, reserved_gpu_gb = _gpu_memory_gb()
     grouped = _group_clip_features(clip_features, owners, len(clip_groups))
 
+    scored: dict[str, dict[str, float]] = {}
+    for mode, text_features in text_by_mode.items():
+        suffix = "" if mode == "raw" else f"@{mode}"
+        for pool, metrics in _score_pools(
+            text_features,
+            grouped,
+            pools=pools,
+            stride=stride,
+            hybrid_alpha=hybrid_alpha,
+            query_pids=query_pids,
+            query_camids=query_camids,
+            gallery_pids=gallery_pids,
+            gallery_camids=gallery_camids,
+            junk_same_camera=junk_same_camera,
+        ).items():
+            metrics["num_clips"] = float(len(flat_windows))
+            _attach_runtime(
+                metrics,
+                decode_s=decode_s,
+                video_s=video_s,
+                text_s=text_s,
+                score_s=metrics.pop("_score_s"),
+                n_video=len(flat_windows),
+                peak_gpu_gb=peak_gpu_gb,
+                reserved_gpu_gb=reserved_gpu_gb,
+            )
+            scored[f"{pool}{suffix}"] = metrics
+    return scored
+
+
+def _score_pools(
+    text_features: np.ndarray,
+    grouped: list[np.ndarray],
+    *,
+    pools: Sequence[str],
+    stride: int,
+    hybrid_alpha: float,
+    query_pids: np.ndarray,
+    query_camids: np.ndarray,
+    gallery_pids: np.ndarray,
+    gallery_camids: np.ndarray,
+    junk_same_camera: bool,
+) -> dict[str, dict[str, float]]:
     scored: dict[str, dict[str, float]] = {}
     for pool in pools:
         t_score = time.perf_counter()
@@ -206,18 +262,7 @@ def evaluate_text_to_tracklet_windows(
                 gallery_camids=gallery_camids,
                 junk_same_camera=junk_same_camera,
             )
-        score_s = time.perf_counter() - t_score
-        metrics["num_clips"] = float(len(flat_windows))
-        _attach_runtime(
-            metrics,
-            decode_s=decode_s,
-            video_s=video_s,
-            text_s=text_s,
-            score_s=score_s,
-            n_video=len(flat_windows),
-            peak_gpu_gb=peak_gpu_gb,
-            reserved_gpu_gb=reserved_gpu_gb,
-        )
+        metrics["_score_s"] = time.perf_counter() - t_score
         scored[pool] = metrics
     return scored
 
@@ -358,6 +403,7 @@ def _prepare_window_gallery(
     sample_fps: float,
     max_frames: int,
     frame_cache: Path | str | None = None,
+    select: str = "uniform",
 ) -> tuple[list[list[list[Path]]], np.ndarray, np.ndarray]:
     groups: list[list[list[Path]]] = []
     pids: list[int] = []
@@ -370,6 +416,7 @@ def _prepare_window_gallery(
             sample_fps=sample_fps,
             max_frames=max_frames,
             frame_cache=cache,
+            select=select,
         )
         windows = sliding_windows(dense, window=window, stride=stride)
         if not windows:

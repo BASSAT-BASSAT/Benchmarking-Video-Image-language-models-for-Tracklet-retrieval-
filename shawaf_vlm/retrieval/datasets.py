@@ -26,6 +26,9 @@ TIER_A_ZERO_SHOT_FAMILIES: tuple[str, ...] = ("tvpreid", "rstpreid", "groot_mot1
 
 LOCAL_ANNOTATIONS_FAMILY = "local"
 
+# In-house benchmark; all ingestion-speed work is measured on ``alexandria:all``.
+ALEXANDRIA_FAMILY = "alexandria"
+
 TIER_A_DATASETS: tuple[DatasetSpec, ...] = (
     DatasetSpec("tvpreid:prid", "TVPReid PRID", "prid", "video"),
     DatasetSpec("tvpreid:ilids", "TVPReid iLIDS", "ilids", "video"),
@@ -42,6 +45,10 @@ def tier_a_and_local_datasets() -> tuple[DatasetSpec, ...]:
     """Tier-A benchmarks plus prepared local annotation configs (``local:<slug>``)."""
 
     extra: list[DatasetSpec] = []
+    from shawaf_vlm.data.alexandria import alexandria_status
+
+    if alexandria_status() == "ready":
+        extra.append(DatasetSpec(f"{ALEXANDRIA_FAMILY}:all", "Alexandria (all days)", "all", "image"))
     for config in list_prepared_configs():
         if config == "all":
             label = "Local annotations (all projects)"
@@ -105,6 +112,11 @@ def load_splits(
 
         return load_local_annotations(config=subset, split=split, root=root)
 
+    if family == ALEXANDRIA_FAMILY:
+        from shawaf_vlm.data.alexandria import load_alexandria
+
+        return load_alexandria(config=subset, split=split, root=root)
+
     raise ValueError(f"Unknown dataset family {family!r}")
 
 
@@ -120,4 +132,11 @@ def dataset_status() -> dict[str, str]:
         "groot": groot,
         "rstpreid": rstp,
         "local_annotations": local_annotations_status(),
+        "alexandria": _alexandria_status(),
     }
+
+
+def _alexandria_status() -> str:
+    from shawaf_vlm.data.alexandria import alexandria_status
+
+    return alexandria_status()

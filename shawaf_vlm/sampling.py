@@ -275,8 +275,13 @@ def resolve_dense_frame_paths(
     sample_fps: float = 2.0,
     max_frames: int = 32,
     frame_cache: Path | str | None = None,
+    select: str = "uniform",
 ) -> list[Path]:
-    """Decode a tracklet densely enough for sliding windows, cap at max_frames."""
+    """Decode a tracklet densely enough for sliding windows, cap at max_frames.
+
+    ``select`` picks which crops survive the cap for crop-folder tracklets
+    (``uniform``, ``quality``, ``diverse``; see ``shawaf_vlm.frame_select``).
+    """
 
     if max_frames < 1:
         raise ValueError("max_frames must be >= 1")
@@ -291,6 +296,10 @@ def resolve_dense_frame_paths(
             cache_dir=frame_cache,
         )
     if len(paths) > max_frames:
+        if select != "uniform":
+            from shawaf_vlm.frame_select import select_frames
+
+            return select_frames(paths, max_frames, strategy=select)
         return sample_frame_paths(paths, num_frames=max_frames)
     return paths
 

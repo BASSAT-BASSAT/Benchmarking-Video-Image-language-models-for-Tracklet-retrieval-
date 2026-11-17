@@ -42,3 +42,6 @@ outputs/
 results/
 tvpreid_frames/
 .shawaf_frames/
+
+# Raw Alexandria footage (private, large)
+Videos-taken_by_us/

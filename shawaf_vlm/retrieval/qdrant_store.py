@@ -1,4 +1,14 @@
-"""Qdrant collections shawaf_global / shawaf_local."""
+"""Qdrant storage: one global and one local (per-window) collection per model.
+
+Collections are named ``shawaf_global__<model>`` / ``shawaf_local__<model>``
+so models with different embedding sizes never share a collection. Points are
+filtered by ``dataset_key`` (keyword payload index).
+
+Ingestion uses ``upload_collection`` with numpy arrays (no per-point
+``PointStruct`` or ``.tolist()``) in batches of 256. By default collections
+store int8 scalar-quantized copies in RAM with the float vectors kept for
+rescoring (``SHAWAF_QDRANT_QUANT=none`` turns this off).
+"""
 
 from __future__ import annotations
 
@@ -13,10 +23,16 @@ from shawaf_vlm.retrieval.encode import TrackletVectors
 GLOBAL_COLLECTION = "shawaf_global"
 LOCAL_COLLECTION = "shawaf_local"
 POOLING_SUPPORTED = ("mean", "query_max", "global_local")
+UPLOAD_BATCH = 256
 
 
 def qdrant_url() -> str:
     return os.environ.get("QDRANT_URL", "http://localhost:6333")
+
+
+def collection_names(model_key: str) -> tuple[str, str]:
+    safe = "".join(ch if ch.isalnum() or ch in "_-" else "_" for ch in model_key)
+    return f"{GLOBAL_COLLECTION}__{safe}", f"{LOCAL_COLLECTION}__{safe}"
 
 
 def _point_id(model_key: str, dataset_key: str, tracklet_id: str, clip_index: int | None) -> int:
@@ -25,23 +41,56 @@ def _point_id(model_key: str, dataset_key: str, tracklet_id: str, clip_index: in
     return int.from_bytes(digest[:8], "big") % (2**63 - 1)
 
 
-def get_client():
+def get_client(location: str | None = None):
+    """``location=":memory:"`` gives an in-process client (tests, no server).
+
+    Set ``QDRANT_PREFER_GRPC=1`` when port 6334 is reachable for faster bulk upload.
+    """
+
     try:
         from qdrant_client import QdrantClient
     except ImportError as exc:
         raise ImportError("Install demo extras: pip install -e '.[demo]'") from exc
-    return QdrantClient(url=qdrant_url())
+    if location is not None:
+        return QdrantClient(location=location)
+    grpc = os.environ.get("QDRANT_PREFER_GRPC", "0") == "1"
+    return QdrantClient(url=qdrant_url(), prefer_grpc=grpc)
 
 
-def ensure_collections(client: Any, vector_size: int) -> None:
+def _quantization_config(qm):
+    mode = os.environ.get("SHAWAF_QDRANT_QUANT", "int8").lower()
+    if mode in ("none", "off", "0"):
+        return None
+    if mode == "binary":
+        return qm.BinaryQuantization(binary=qm.BinaryQuantizationConfig(always_ram=True))
+    return qm.ScalarQuantization(
+        scalar=qm.ScalarQuantizationConfig(type=qm.ScalarType.INT8, quantile=0.99, always_ram=True)
+    )
+
+
+def ensure_collections(client: Any, model_key: str, vector_size: int) -> tuple[str, str]:
     from qdrant_client.http import models as qm
 
-    for name in (GLOBAL_COLLECTION, LOCAL_COLLECTION):
-        if not client.collection_exists(name):
-            client.create_collection(
-                collection_name=name,
-                vectors_config=qm.VectorParams(size=vector_size, distance=qm.Distance.COSINE),
-            )
+    names = collection_names(model_key)
+    for name in names:
+        if client.collection_exists(name):
+            info = client.get_collection(name)
+            vectors = info.config.params.vectors
+            size = getattr(vectors, "size", None)
+            if size is not None and int(size) != int(vector_size):
+                raise ValueError(
+                    f"Collection {name} holds {size}-d vectors but {model_key} produced {vector_size}-d. "
+                    "Delete the collection or use a different model key."
+                )
+            continue
+        client.create_collection(
+            collection_name=name,
+            vectors_config=qm.VectorParams(size=vector_size, distance=qm.Distance.COSINE),
+            quantization_config=_quantization_config(qm),
+        )
+        for field in ("dataset_key", "tracklet_id"):
+            client.create_payload_index(name, field_name=field, field_schema=qm.PayloadSchemaType.KEYWORD)
+    return names
 
 
 def _payload(
@@ -68,40 +117,48 @@ def upsert_tracklets(
     model_key: str,
     dataset_key: str,
     tracklets: list[TrackletVectors],
-    batch_size: int = 64,
-) -> None:
-    from qdrant_client.http import models as qm
+    batch_size: int = UPLOAD_BATCH,
+) -> dict[str, int]:
+    """Upload global and per-window vectors. Returns point counts per collection."""
 
     if not tracklets:
-        return
+        return {}
     dim = int(tracklets[0].global_vector.shape[0])
-    ensure_collections(client, dim)
+    global_name, local_name = ensure_collections(client, model_key, dim)
 
-    global_points: list[qm.PointStruct] = []
-    local_points: list[qm.PointStruct] = []
+    global_vecs = np.stack([t.global_vector for t in tracklets]).astype(np.float32, copy=False)
+    global_ids = [_point_id(model_key, dataset_key, t.tracklet_id, None) for t in tracklets]
+    global_payload = [_payload(model_key, dataset_key, t) for t in tracklets]
+
+    local_rows: list[np.ndarray] = []
+    local_ids: list[int] = []
+    local_payload: list[dict[str, Any]] = []
     for t in tracklets:
-        gid = _point_id(model_key, dataset_key, t.tracklet_id, None)
-        global_points.append(
-            qm.PointStruct(
-                id=gid,
-                vector=t.global_vector.astype(np.float32).tolist(),
-                payload=_payload(model_key, dataset_key, t),
-            )
-        )
-        for clip_index, vec in enumerate(t.clip_vectors):
-            lid = _point_id(model_key, dataset_key, t.tracklet_id, clip_index)
-            local_points.append(
-                qm.PointStruct(
-                    id=lid,
-                    vector=vec.astype(np.float32).tolist(),
-                    payload=_payload(model_key, dataset_key, t, clip_index),
-                )
-            )
+        clips = np.asarray(t.clip_vectors, dtype=np.float32).reshape(-1, dim)
+        local_rows.append(clips)
+        for clip_index in range(clips.shape[0]):
+            local_ids.append(_point_id(model_key, dataset_key, t.tracklet_id, clip_index))
+            local_payload.append(_payload(model_key, dataset_key, t, clip_index))
+    local_vecs = np.concatenate(local_rows, axis=0) if local_rows else np.zeros((0, dim), np.float32)
 
-    for start in range(0, len(global_points), batch_size):
-        client.upsert(collection_name=GLOBAL_COLLECTION, points=global_points[start : start + batch_size])
-    for start in range(0, len(local_points), batch_size):
-        client.upsert(collection_name=LOCAL_COLLECTION, points=local_points[start : start + batch_size])
+    client.upload_collection(
+        collection_name=global_name,
+        vectors=global_vecs,
+        payload=global_payload,
+        ids=global_ids,
+        batch_size=batch_size,
+        wait=True,
+    )
+    if local_ids:
+        client.upload_collection(
+            collection_name=local_name,
+            vectors=local_vecs,
+            payload=local_payload,
+            ids=local_ids,
+            batch_size=batch_size,
+            wait=True,
+        )
+    return {global_name: len(global_ids), local_name: len(local_ids)}
 
 
 def search_global(
@@ -113,15 +170,17 @@ def search_global(
 ) -> list[dict[str, Any]]:
     from qdrant_client.http import models as qm
 
-    hits = client.search(
-        collection_name=GLOBAL_COLLECTION,
-        query_vector=query_vector.astype(np.float32).tolist(),
+    global_name, _ = collection_names(model_key)
+    response = client.query_points(
+        collection_name=global_name,
+        query=np.asarray(query_vector, dtype=np.float32).tolist(),
         limit=limit,
         query_filter=qm.Filter(
-            must=[
-                qm.FieldCondition(key="model_key", match=qm.MatchValue(value=model_key)),
-                qm.FieldCondition(key="dataset_key", match=qm.MatchValue(value=dataset_key)),
-            ]
+            must=[qm.FieldCondition(key="dataset_key", match=qm.MatchValue(value=dataset_key))]
         ),
+        search_params=qm.SearchParams(
+            quantization=qm.QuantizationSearchParams(rescore=True, oversampling=2.0)
+        ),
+        with_payload=True,
     )
-    return [{"score": h.score, "payload": h.payload} for h in hits]
+    return [{"score": point.score, "payload": point.payload} for point in response.points]

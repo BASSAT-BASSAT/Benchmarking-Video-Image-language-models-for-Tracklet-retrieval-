@@ -41,6 +41,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--text-batch-size", type=int, default=32)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument(
+        "--image-size",
+        type=int,
+        default=None,
+        help="Override PE-Core / MobileCLIP2 input resolution (for example 224).",
+    )
+    parser.add_argument(
+        "--fit",
+        choices=("native", "squash", "letterbox", "pad2"),
+        default=None,
+        help="How a person crop is fitted to the square input (PE-Core / MobileCLIP2).",
+    )
+    parser.add_argument(
         "--windows",
         action="store_true",
         help="Sliding-window clip encode + pooling (mean / max / query_max).",
@@ -49,10 +61,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sample-fps", type=float, default=2.0)
     parser.add_argument("--max-frames", type=int, default=32)
     parser.add_argument(
+        "--select",
+        choices=("uniform", "quality", "diverse"),
+        default="uniform",
+        help="Which crops survive --max-frames (see shawaf_vlm/frame_select.py).",
+    )
+    parser.add_argument(
         "--pools",
         type=str,
         default="mean,mean_s8,max,query_max,global_local",
         help="Comma-separated pooling configs when --windows is set.",
+    )
+    parser.add_argument(
+        "--query-modes",
+        type=str,
+        default="raw",
+        help="Comma-separated query text modes scored on one gallery encode: raw,clean,template,ensemble.",
     )
     parser.add_argument(
         "--hybrid-alpha",
@@ -64,6 +88,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--junk-same-camera",
         action="store_true",
         help="Discard same-pid same-camera gallery hits (off by default).",
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default=None,
+        help="Loader key such as alexandria:all or tvpreid:duke. Default: TV-MARS from --data-root.",
+    )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Record stage timings and wall time of the gallery encode in the output JSON.",
     )
     parser.add_argument("--output", type=Path, default=None)
     return parser.parse_args(argv)
@@ -107,23 +142,32 @@ def main(argv: list[str] | None = None) -> None:
     spec = all_specs()[args.model]
     data_root = args.data_root or default_data_root()
     ann_root = args.ann_root or default_ann_root(data_root)
+    dataset_name = args.dataset or "tv-mars"
     output = args.output or (
-        PROJECT_ROOT / "results" / f"{args.model}_tv_mars.json"
+        PROJECT_ROOT / "results" / f"{args.model}_{dataset_name.replace(':', '_')}.json"
     )
 
     print(f"Model     : {spec.label} ({args.model})")
     print(f"Checkpoint: {spec.checkpoint}")
-    print(f"Crops     : {data_root}")
-    print(f"Captions  : {ann_root}")
+    if args.dataset:
+        print(f"Dataset   : {args.dataset}")
+    else:
+        print(f"Crops     : {data_root}")
+        print(f"Captions  : {ann_root}")
     print(f"Frames    : {args.num_frames}")
     if args.windows:
         print(f"Windows   : stride={args.stride} fps={args.sample_fps:g} max={args.max_frames}")
         print(f"Pools     : {args.pools}")
 
-    try:
-        splits = load_tv_mars(data_root, ann_root)
-    except CaptionFilesNotFound as exc:
-        raise SystemExit(str(exc)) from exc
+    if args.dataset:
+        from shawaf_vlm.retrieval.datasets import load_splits
+
+        splits = load_splits(args.dataset, download=False)
+    else:
+        try:
+            splits = load_tv_mars(data_root, ann_root)
+        except CaptionFilesNotFound as exc:
+            raise SystemExit(str(exc)) from exc
 
     print(
         f"Queries   : {len(splits.query)}\n"
@@ -131,7 +175,17 @@ def main(argv: list[str] | None = None) -> None:
         f"Split     : {splits.source}"
     )
 
-    encoder = build_encoder(args.model, device=args.device)
+    timer = None
+    if args.profile:
+        from shawaf_vlm.profiling import StageTimer, cuda_sync_for
+
+        timer = StageTimer(sync=cuda_sync_for(args.device))
+        timer.start()
+        with timer.stage("model_load"):
+            encoder = build_encoder(args.model, device=args.device, image_size=args.image_size, fit=args.fit)
+        encoder.stage_timer = timer
+    else:
+        encoder = build_encoder(args.model, device=args.device, image_size=args.image_size, fit=args.fit)
     if args.windows:
         pools = tuple(name.strip() for name in args.pools.split(",") if name.strip())
         scored = evaluate_text_to_tracklet_windows(
@@ -146,6 +200,8 @@ def main(argv: list[str] | None = None) -> None:
             text_batch_size=args.text_batch_size,
             junk_same_camera=args.junk_same_camera,
             hybrid_alpha=args.hybrid_alpha,
+            select=args.select,
+            query_modes=tuple(m.strip() for m in args.query_modes.split(",") if m.strip()),
         )
         print()
         for pool, metrics in scored.items():
@@ -166,13 +222,29 @@ def main(argv: list[str] | None = None) -> None:
         print(format_metrics(metrics))
         metrics_payload = metrics
 
+    profile = None
+    if timer is not None:
+        from shawaf_vlm.profiling import device_info
+
+        timer.stop()
+        timer.tracklets = len(splits.gallery)
+        timer.info.update(device_info(args.device))
+        profile = timer.summary()
+        print(
+            f"Profile   : wall {profile['wall_s']:.1f}s (includes text encode + scoring), "
+            f"{profile['frames']} frames, forward {profile['stages_s']['forward']:.1f}s"
+        )
+
     output.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "image_size": args.image_size,
+        "fit": getattr(encoder, "fit", None),
+        "profile": profile,
         "model_key": spec.key,
         "model": spec.label,
         "checkpoint": spec.checkpoint,
         "notes": spec.notes,
-        "dataset": "tv-mars",
+        "dataset": dataset_name,
         "split_source": splits.source,
         "data_root": str(data_root),
         "ann_root": str(ann_root),
@@ -181,6 +253,7 @@ def main(argv: list[str] | None = None) -> None:
         "stride": args.stride,
         "sample_fps": args.sample_fps,
         "max_frames": args.max_frames,
+        "select": args.select,
         "pools": args.pools,
         "hybrid_alpha": args.hybrid_alpha,
         "batch_size": args.batch_size,

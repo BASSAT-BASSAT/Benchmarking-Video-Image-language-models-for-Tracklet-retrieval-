@@ -51,4 +51,4 @@ def test_dataset_status_keys() -> None:
     from shawaf_vlm.retrieval.datasets import dataset_status
 
     st = dataset_status()
-    assert set(st.keys()) == {"tvpreid", "groot", "rstpreid"}
+    assert set(st.keys()) == {"tvpreid", "groot", "rstpreid", "local_annotations", "alexandria"}

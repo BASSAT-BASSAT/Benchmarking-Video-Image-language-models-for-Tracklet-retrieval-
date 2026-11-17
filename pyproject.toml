@@ -127,6 +127,11 @@ extended_gme = [
     "huggingface_hub>=0.23",
     "pandas>=2.0",
 ]
+optim = [
+    "nvidia-modelopt>=0.27",
+    "onnx>=1.16",
+    "onnxruntime>=1.18",
+]
 embeddinggemma2 = [
     "torch>=2.8,<2.9",
     "torchvision>=0.23,<0.24",

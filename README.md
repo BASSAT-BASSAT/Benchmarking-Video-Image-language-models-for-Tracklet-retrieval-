@@ -111,12 +111,34 @@ python demo/app.py
 Local annotations: `--dataset local:all` after indexing with the same `--model`.
 Data download is CLI-only (not in the UI). See [docs/datasets_catalog.md](docs/datasets_catalog.md).
 
+**Alexandria (our footage)** is the default demo dataset once prepared. The
+recommended index uses padded crops:
+
+```bash
+python scripts/prepare_alexandria.py
+python scripts/index_qdrant.py --model pe_core_l14 --dataset alexandria:all --skip-qdrant --no-download --fit letterbox
+SHAWAF_DEMO_MODEL=pe_core_l14 python demo/app.py
+```
+
+## Alexandria benchmark and ingestion speed
+
+Results, findings and commands: [docs/ingestion_speed.md](docs/ingestion_speed.md).
+In short, padding person crops to a square (`--fit letterbox`) raises PE-L
+Rank-1 on Alexandria from 46.6 to 52.7. The vision forward pass is 83 % of
+ingestion time. `scripts/ingestion_sweep.py` runs any set of configs and writes
+one CSV row each; `scripts/failure_analysis.py` explains the misses.
+
 ## Install & evaluate
 
 ```bash
 pip install -e ".[all]"          # base benchmark models
 pip install -e ".[embeddinggemma2]"  # EmbeddingGemma 2 only (do not mix with [all] in one env)
 ```
+
+On the local RTX 5070 machine there are two conda envs: `crowd-gpu` (everything
+except EmbeddingGemma 2; transformers 4.x) and `gemma-gpu` (a clone with
+transformers 5.23 and sentence-transformers 6.3, for `embeddinggemma2` only;
+torch kept at the cu128 nightly).
 
 ```bash
 python scripts/eval_encoder.py --model pe_core_l14 --windows --pools mean,query_max,global_local
@@ -132,7 +154,7 @@ Pooling (Type A / B / C): see
 | [`shawaf_vlm/`](shawaf_vlm/) | Library: data, models, retrieval, eval |
 | [`scripts/`](scripts/README.md) | Download, index, figures, annotations prep |
 | [`notebooks/`](notebooks/README.md) | Kaggle/Colab benchmarks — [**what’s left to run**](notebooks/README.md) |
-| [`docs/`](docs/ARCHITECTURE.md) | [Protocol & pooling](docs/retrieval_protocol_and_pooling.md), [full scores](docs/full_benchmark_scores.md), [environments](docs/ENVIRONMENTS.md) |
+| [`docs/`](docs/ARCHITECTURE.md) | [Protocol & pooling](docs/retrieval_protocol_and_pooling.md), [ingestion speed](docs/ingestion_speed.md), [full scores](docs/full_benchmark_scores.md), [environments](docs/ENVIRONMENTS.md) |
 
 **Notebooks:** see [`notebooks/README.md`](notebooks/README.md) (handoff + pending jobs).
 Main files: [`kaggle-zero-shot.ipynb`](notebooks/kaggle-zero-shot.ipynb),
