@@ -50,16 +50,19 @@ Rank-1 / mAP. "padded" = `--fit letterbox`; `/n8` = 8 frames per tracklet (defau
 | **`pe_core_l14:letterbox`** | **52.7** | 51.9 | **66.1** |
 | `pe_core_l14:pad2` | 49.6 | 48.9 | 64.4 |
 | `pe_core_l14:letterbox/n8` | 47.3 | 47.3 | 63.6 |
-| `pe_core_l14:letterbox/n16`, `/n32` | *pending* | | |
+| **`pe_core_l14:letterbox/n16`** (recommended) | **51.2** | 51.2 | **65.2** |
+| `pe_core_l14:letterbox/n32` | 51.9 | 51.9 | 65.5 |
 | `pe_core_b16` | 47.3 | 47.3 | — |
 | `pe_core_s16` | — | 36.6 | — |
 | `pe_core_t16` | — | 26.7 | — |
 | `mobileclip2_b` / `:letterbox` | — | 34.3 / 42.0 | — |
 | `siglip2` (old setup) | 46.6 | 47.3 | 61.9 |
 | `siglip2:letterbox/n8` | 51.2 | 51.2 | 63.5 |
-| `siglip2:letterbox` | *pending* | | |
-| `embeddinggemma2` / `:letterbox/n8` / `:letterbox` | *pending* | | |
-| `eva02_clip_l14`, `dfn_clip_l14` (stretched / padded) | *pending* | | |
+| `siglip2:letterbox` | 47.3 | 49.6 | 61.4 |
+| `embeddinggemma2` (old setup) | 47.3 | 47.3 | 59.8 |
+| `embeddinggemma2:letterbox/n8` | 42.7 | 42.7 | 59.9 |
+| `embeddinggemma2:letterbox` | 43.5 | 45.8 | 60.7 |
+| `eva02_clip_l14`, `dfn_clip_l14` (stretched / padded) | to do | | |
 | `mobileclip2_s2`, `mobileclip2_s4` | invalid | | Fail a zero-shot sanity check under open_clip 3.3 / timm 1.0.27 |
 
 Findings:
@@ -68,9 +71,11 @@ Findings:
    gain grows with how much of the crop's shape is kept: stretched < `pad2` <
    letterbox. Person crops are about 1:2.5; stretching them distorts shapes such
    as a hijab, a bag strap or glasses.
-2. **With stretched crops, 8 frames match 64. With padded crops they do not.**
-   Padded at 8 frames loses most of the padding gain. The 16/32-frame runs
-   locate the cut-off.
+2. **With stretched crops, 8 frames match 64. With padded crops, use 16.**
+   PE-L padded: 47.3 / 51.2 / 51.9 / 52.7 Rank-1 at 8 / 16 / 32 / 64 frames.
+   Sixteen frames keep almost all of the gain at a quarter of the work.
+   Padding is a dependable gain for PE-L only; SigLIP 2 and EmbeddingGemma 2
+   move within noise.
 3. **Query text cleanup does nothing** (identical to raw). Prompt templates move
    Rank-1 up but Rank-5 down, with flat mAP. The app keeps raw query text.
 4. **`query_max` pooling is best with padded crops.**

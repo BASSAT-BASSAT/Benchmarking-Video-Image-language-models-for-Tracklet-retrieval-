@@ -91,6 +91,18 @@ def run_config(cfg: dict[str, object], args: argparse.Namespace, out_dir: Path) 
         return {**cfg, "dataset": args.dataset, "status": f"failed: {reason}"}
 
     payload = json.loads(result_path.read_text(encoding="utf-8"))
+    return row_from_payload(cfg, args.dataset, payload)
+
+
+def result_paths(cfg: dict[str, object], dataset: str, out_dir: Path) -> list[Path]:
+    """Current name (dataset-prefixed) first, then the legacy tag-only name."""
+
+    current = re.sub(r"[^a-z0-9_]+", "_", f"{dataset}__{cfg['tag']}".lower())
+    legacy = re.sub(r"[^a-z0-9_]+", "_", str(cfg["tag"]).lower())
+    return [out_dir / f"{current}.json", out_dir / f"{legacy}.json"]
+
+
+def row_from_payload(cfg: dict[str, object], dataset: str, payload: dict) -> dict[str, object]:
     metrics = payload.get("metrics", {})
     profile = payload.get("profile") or {}
     stages = profile.get("stages_s", {})
@@ -100,7 +112,7 @@ def run_config(cfg: dict[str, object], args: argparse.Namespace, out_dir: Path) 
     row: dict[str, object] = {
         **cfg,
         "status": "ok",
-        "dataset": args.dataset,
+        "dataset": dataset,
         "queries": payload.get("num_queries"),
         "gallery": payload.get("num_gallery"),
         "frames": frames,
@@ -137,28 +149,58 @@ def main() -> None:
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--out", type=Path, default=ROOT / "results" / "ingestion" / "sweep.csv")
     parser.add_argument("--rerun", action="store_true", help="Run configs even if their tag is in the CSV")
+    parser.add_argument(
+        "--import-only",
+        action="store_true",
+        help="Do not run anything; rebuild CSV rows for the given configs from their saved result JSONs",
+    )
     args = parser.parse_args()
 
     out_dir = args.out.parent / "runs"
     out_dir.mkdir(parents=True, exist_ok=True)
-    done: set[str] = set()
-    rows: list[dict[str, object]] = []
-    if args.out.is_file():
-        with args.out.open(encoding="utf-8", newline="") as handle:
-            rows = list(csv.DictReader(handle))
-        done = {r["tag"] for r in rows if r.get("status") == "ok" and r.get("dataset") == args.dataset}
+    done = {
+        r["tag"] for r in _read(args.out) if r.get("status") == "ok" and r.get("dataset") == args.dataset
+    }
 
     for text in args.configs:
         cfg = parse_config(text, args.max_frames)
-        if cfg["tag"] in done and not args.rerun:
-            print(f"skip {cfg['tag']} (already in {args.out.name})", flush=True)
-            continue
-        row = run_config(cfg, args, out_dir)
-        rows = [r for r in rows if not (r.get("tag") == cfg["tag"] and r.get("dataset") == args.dataset)]
-        rows.append(row)
-        _write(args.out, rows)
+        if args.import_only:
+            found = next((p for p in result_paths(cfg, args.dataset, out_dir) if p.is_file()), None)
+            if found is None:
+                print(f"   {cfg['tag']}: no saved result JSON", flush=True)
+                continue
+            payload = json.loads(found.read_text(encoding="utf-8"))
+            if payload.get("dataset") not in (None, args.dataset):
+                print(f"   {cfg['tag']}: {found.name} is for {payload.get('dataset')}, skipped", flush=True)
+                continue
+            row = row_from_payload(cfg, args.dataset, payload)
+        else:
+            if cfg["tag"] in done and not args.rerun:
+                print(f"skip {cfg['tag']} (already in {args.out.name})", flush=True)
+                continue
+            row = run_config(cfg, args, out_dir)
+        _upsert(args.out, row)
         r1 = row.get("r1_global_local")
         print(f"   {cfg['tag']}: {row['status'][:200]}  R1(gl)={r1}  ms/frame={row.get('ms_per_frame')}", flush=True)
+
+
+def _read(path: Path) -> list[dict[str, object]]:
+    if not path.is_file():
+        return []
+    with path.open(encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _upsert(path: Path, row: dict[str, object]) -> None:
+    """Re-read the CSV right before writing so concurrent sweeps merge, not overwrite."""
+
+    rows = [
+        r for r in _read(path) if not (r.get("tag") == row.get("tag") and r.get("dataset") == row.get("dataset"))
+    ]
+    rows.append(row)
+    tmp = path.with_suffix(".tmp")
+    _write(tmp, rows)
+    tmp.replace(path)
 
 
 def _write(path: Path, rows: list[dict[str, object]]) -> None:
