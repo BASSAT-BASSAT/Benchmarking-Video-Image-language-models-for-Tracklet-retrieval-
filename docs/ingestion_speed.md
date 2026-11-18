@@ -48,7 +48,12 @@ All 131 Alexandria people; `index_qdrant.py --profile`; ingest time excludes mod
 | PE-L, stretched, 64 frames (old) | 7,860 | 130.9 s | 1.0 | 45.0 |
 | PE-L, padded, 64 frames | 7,860 | 128.3 s | 1.0 | 52.7 |
 | **PE-L, padded, 16 frames (new default)** | 2,096 | **38.7 s** | 3.4 | 51.2 |
-| PE-B, padded, 16 frames | 2,096 | 6.8 s | 19.1 | to do |
+| PE-B, padded, 16 frames | 2,096 | 6.8 s | 19.1 | 45.0 (Rank-5 80.9, mAP 58.4) |
+| **PE-B, stretched, 16 frames (fast option)** | 2,096 | ~6.8 s | ~19 | **46.6 (Rank-5 80.2, mAP 60.4)** |
+
+Padding does not help PE-B (224 px input leaves too few pixels on the person);
+use its native stretched crops. PE-B is about 6× faster than PE-L and loses
+about 4.5 Rank-1 and 3 Rank-5 points.
 
 The threaded loader cut image load + preprocess from about 23 s to about 2 s.
 
