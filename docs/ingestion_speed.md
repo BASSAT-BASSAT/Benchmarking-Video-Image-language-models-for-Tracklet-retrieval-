@@ -177,6 +177,28 @@ python scripts/failure_analysis.py
 Config syntax for the sweep: `model[@size][:fit][/nFRAMES][+select]`, for
 example `pe_core_b16@224:letterbox/n16+diverse`.
 
+## Lightweight improvements tested (cleaned Alexandria, 129 people)
+
+All at the same or lower ingestion and search cost; settings fixed in advance
+(10 % margin, weight 0.5). Hard Rank-1 / meaning-based Rank-1
+(`scripts/rescore.py`, `results/rescore/summary.csv`).
+
+| Model (16 frames) | Baseline | Larger crops (10 % margin) | Full + 0.5·action | 0.5·appearance + 0.5·action | 8 evenly spaced | Sharpest 8 |
+|---|---|---|---|---|---|---|
+| PE-L, padded | **51.2 / 59.7** | 48.1 / 56.6 | 47.3 / 54.3 | 48.8 / 56.6 | 48.8 / 55.8 | 54.3 / 62.8 |
+| PE-B | **47.3 / 55.0** | 42.6 / 51.2 | 41.1 / 48.8 | 38.0 / 45.7 | 47.3 / 54.3 | 41.9 / 49.6 |
+| SigLIP 2 | **51.2 / 55.8** | 50.4 / 55.0 | 39.5 / 44.2 | 41.1 / 48.1 | 48.1 / 53.5 | 51.9 / 56.6 |
+| EmbeddingGemma 2 | 47.3 / 51.9 | **48.8 / 53.5** | 41.9 / 47.3 | 35.7 / 41.1 | 45.7 / 51.2 | 43.4 / 48.8 |
+
+GroOT combined, hard Rank-1: PE-L 29.7 (16) / 29.9 (8) / 26.7 (sharpest 8);
+PE-B 24.4 / 26.2 / 25.3.
+
+None of the three ideas helps consistently. Query weighting hurts every model;
+larger crops help only EmbeddingGemma 2; sharpest-8's Alexandria gain for PE-L
+does not hold on GroOT. Selecting crops also costs more than encoding them for
+PE-B (0.093 vs 0.059 s per person). Eight evenly spaced frames match 16 on
+GroOT at half the cost.
+
 ## Not done yet
 
 - Re-time throughput on AC power with nothing else on the GPU.

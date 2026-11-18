@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -77,7 +78,9 @@ def query_texts(mode: str, weight: float, tracks, caps, fallback) -> list[tuple[
 
 
 def safe(tag: str) -> str:
-    return tag.replace(":", "_").replace("/", "_").replace("+", "_")
+    """File-system safe on Windows (no | : / + @ in names)."""
+
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", tag)
 
 
 def load_labels(actions: Path, pairs: Path):
@@ -193,8 +196,10 @@ def main() -> None:
         t1 = time.perf_counter()
         g_tracks = [g.track_id for g in splits.gallery]
         if args.from_gallery:
-            data = np.load(gallery_cache, allow_pickle=True)
-            grouped, gpids = list(data["grouped"]), data["gpids"]
+            data = np.load(gallery_cache)
+            flat_feats, counts = data["feats"].astype(np.float32), data["counts"]
+            grouped = np.split(flat_feats, np.cumsum(counts)[:-1])
+            gpids = data["gpids"]
             base = OUT / f"{safe(gallery_tag(args))}.json"
             prior = json.loads(base.read_text(encoding="utf-8")).get("timing", {}) if base.is_file() else {}
             t2 = time.perf_counter()
@@ -214,7 +219,13 @@ def main() -> None:
             t2 = time.perf_counter()
             grouped = _group_clip_features(feats, owners, len(groups))
             gpids = np.asarray(gpids)
-            np.savez(gallery_cache, grouped=np.array(grouped, dtype=object), gpids=gpids)
+            # Plain float arrays (an object array of equal-shaped groups loads back as objects).
+            np.savez(
+                gallery_cache,
+                feats=np.concatenate([np.asarray(g, dtype=np.float32) for g in grouped], axis=0),
+                counts=np.array([len(g) for g in grouped]),
+                gpids=gpids,
+            )
         queries = [q for q in splits.query if not caps or q.track_id in caps]
         q_tracks = [q.track_id for q in queries]
         qpids = np.array([int(q.person_id) for q in queries])
