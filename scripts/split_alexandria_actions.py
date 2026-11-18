@@ -44,33 +44,47 @@ FIXES: dict[str, dict[str, str]] = {
         "action": "looking at the doctor's phone and talking with her",
         "note": "'is pink chemise' read as 'in pink chemise'",
     },
+    # day4_34: reviewed by the annotator from the footage. Nobody visibly
+    # "rescues" anyone, and "fainting" cannot be seen, only falling.
     "day4_34/person_1": {
-        "caption_fixed": "the girl in red is fainting",
+        "caption_fixed": "the girl in red is falling",
         "appearance": "the girl in red",
-        "action": "fainting",
-        "note": "'fainted' rewritten as an action",
+        "action": "falling",
+        "reviewed": "yes",
+        "note": "annotator: she is falling; fainting is not visible",
     },
     "day4_34/person_2": {
-        "caption_fixed": "a girl in hijab, yellow blouse is helping a girl who fainted",
-        "action": "helping a girl who fainted",
+        "caption_fixed": "a girl in hijab, yellow blouse is standing",
+        "appearance": "a girl in hijab, yellow blouse",
+        "action": "standing",
+        "reviewed": "yes",
+        "note": "annotator: just standing; 'rescued' removed",
     },
     "day4_34/person_3": {
-        "caption_fixed": "a girl in hijab, brown blouse is helping a girl who fainted",
-        "action": "helping a girl who fainted",
+        "caption_fixed": "a girl in hijab, brown blouse is on her phone",
+        "appearance": "a girl in hijab, brown blouse",
+        "action": "on her phone",
+        "reviewed": "yes",
+        "note": "annotator: on her phone; 'rescued' removed",
     },
     "day4_34/person_4": {
-        "caption_fixed": "a girl in hijab, blue blouse is helping a girl who fainted",
-        "action": "helping a girl who fainted",
+        "caption_fixed": "a girl in hijab, blue blouse is standing",
+        "appearance": "a girl in hijab, blue blouse",
+        "action": "standing",
+        "reviewed": "yes",
+        "note": "annotator: just standing; 'rescued' removed",
     },
     "day5_52/person_2": {
         "caption_fixed": "a boy in red shirt and black jeans is talking",
         "action": "talking",
-        "note": "'taking' read as 'talking'",
+        "reviewed": "yes",
+        "note": "annotator: 'taking' is a misspelling of 'talking'",
     },
     "day5_52/person_3": {
         "caption_fixed": "a boy in grey shirt and white jeans is talking",
         "action": "talking",
-        "note": "'taking' read as 'talking'",
+        "reviewed": "yes",
+        "note": "annotator: 'taking' is a misspelling of 'talking'",
     },
     "day5_51/person_3": {
         "caption_fixed": "a girl with beige hijab and white blouse is talking to her friend",
@@ -83,10 +97,21 @@ FIXES: dict[str, dict[str, str]] = {
         "note": "'her phone' for a boy read as 'his phone'",
     },
     "day2_18/person_2": {
-        "caption_fixed": "a curly hair girl wears white shirt and blue shirt is on her phone",
-        "note": "two shirts listed; check which is correct",
+        "caption_fixed": "a curly hair girl wears white shirt and blue pants is on her phone",
+        "appearance": "a curly hair girl wears white shirt and blue pants",
+        "action": "on her phone",
+        "reviewed": "yes",
+        "note": "annotator: second item is blue pants, not a blue shirt",
     },
 }
+
+# Annotator decision: captions with no action describe someone standing.
+STANDING = (
+    "day2_16/person_2", "day2_17/person_2", "day4_36/person_1",
+    "day4_40/person_1", "day5_43/person_5", "day5_43/person_6",
+)
+for _track in STANDING:
+    FIXES[_track] = {"action": "standing", "reviewed": "yes", "note": "annotator: no action in caption, so standing"}
 
 NO_ACTION_NOTE = "no action in caption: watch the clip and add one if visible"
 
@@ -109,8 +134,11 @@ def build_row(track_id: str, caption: str, crops_folder: Path, preview: Path | N
     fix = FIXES.get(track_id)
     if fix:
         row.update(fix)
+        if "caption_fixed" not in fix and fix.get("action") and not s.action:
+            # Action added for a caption that had none: append it to the fixed caption.
+            row["caption_fixed"] = f"{row['caption_fixed']} is {fix['action']}"
         row["action_class"] = classify_action(row["action"])
-        row["flag"] = "auto-fixed: please confirm"
+        row["flag"] = "" if fix.get("reviewed") == "yes" else "auto-fixed: please confirm"
     if not row["action"]:
         row["flag"] = "no action found"
         row["note"] = row["note"] or NO_ACTION_NOTE

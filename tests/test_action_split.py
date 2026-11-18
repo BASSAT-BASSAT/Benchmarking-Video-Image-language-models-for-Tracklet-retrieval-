@@ -15,8 +15,7 @@ from shawaf_vlm.action_split import action_query, classify_action, split_caption
         ("a boy wears black tshirt, glasses  and green pants is talking on his phonew",
          "a boy wears black tshirt, glasses and green pants", "talking on his phone", "phone"),
         ("a girl in red hoodie watches the fight", "a girl in red hoodie", "watches the fight", "watching fight"),
-        ("a girl in hijab , yellow blouse rescued the girl who fainted",
-         "a girl in hijab, yellow blouse", "rescued the girl who fainted", "fainting / helping"),
+        ("the girl in red fainted", "the girl in red", "fainted", "falling"),
     ],
 )
 def test_split_caption(caption, appearance, action, cls) -> None:

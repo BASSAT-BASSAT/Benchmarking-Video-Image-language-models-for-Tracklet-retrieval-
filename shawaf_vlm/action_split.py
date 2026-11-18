@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 # Fixed before looking at any retrieval result.
 ACTION_CLASSES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("fainting / helping", ("faint", "rescued")),
+    ("falling", ("fall", "faint")),
     ("watching fight", ("watch", "watching the fight")),
     ("fighting", ("fight",)),
     ("phone", ("phone",)),
