@@ -85,3 +85,13 @@ def test_prepare_and_load_configs(layout):
     assert len(clip.gallery) == 2
     with pytest.raises(FileNotFoundError):
         load_splits("alexandria:day9", root=layout["prepared"])
+
+
+def test_excluded_tracks_are_filtered(layout, monkeypatch):
+    alex.unpack_alexandria(layout["zips"], layout["source"], layout["videos"])
+    alex.prepare_alexandria(layout["source"], layout["prepared"])
+    monkeypatch.setitem(alex.EXCLUDED_TRACKS, "day1_1/person_1", "test")
+    splits = load_splits("alexandria:all", root=layout["prepared"])
+    assert "day1_1/person_1" not in {g.track_id for g in splits.gallery}
+    assert "day1_1/person_1" not in {q.track_id for q in splits.query}
+    assert len(splits.gallery) == 3

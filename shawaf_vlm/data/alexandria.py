@@ -221,7 +221,17 @@ def load_alexandria(
             "Run scripts/prepare_alexandria.py first."
         )
     splits = load_local_annotations(config=config, split=split, root=prepared)
-    return TVMarsSplits(query=splits.query, gallery=splits.gallery, source=f"alexandria:{config}/{split}")
+    query = [q for q in splits.query if q.track_id not in EXCLUDED_TRACKS]
+    gallery = [g for g in splits.gallery if g.track_id not in EXCLUDED_TRACKS]
+    return TVMarsSplits(query=query, gallery=gallery, source=f"alexandria:{config}/{split}")
+
+
+# Tracklets removed from the benchmark by the annotator, with the reason.
+# Filtered at load time, so re-running the preparation cannot bring them back.
+EXCLUDED_TRACKS: dict[str, str] = {
+    "day5_53/person_3": "badly labelled (annotator review, 2026-11-18)",
+    "day5_53/person_4": "badly labelled (annotator review, 2026-11-18)",
+}
 
 
 def alexandria_status() -> str:
