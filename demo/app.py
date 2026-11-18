@@ -37,7 +37,7 @@ DEFAULT_MODE_LABEL = "Best moment"
 BLEND_LABEL = "Blend of both"
 # Recommended ingestion settings for the in-app rebuild button.
 INDEX_FIT = os.environ.get("SHAWAF_INDEX_FIT", "letterbox")
-INDEX_MAX_FRAMES = os.environ.get("SHAWAF_INDEX_MAX_FRAMES", "8")
+INDEX_MAX_FRAMES = os.environ.get("SHAWAF_INDEX_MAX_FRAMES", "16")
 EXAMPLE_QUERIES = (
     "a girl in hijab, red blouse is drinking",
     "a boy in black shirt and green pants is fighting",
@@ -348,14 +348,31 @@ def _card_html(
     path: str,
     tracklet_id: str,
     score: float,
-    best: float,
+    best: float = 0.0,
     detail: str = "",
+    calib: "ScoreCalibration | None" = None,
 ) -> str:
+    """One result card. ``best`` is unused (kept for callers); bars use a fixed scale."""
+
     place, person = _person_label(tracklet_id)
     name = f"Match {rank}: {place}" + (f", {person}" if person else "")
-    share = max(0.0, min(1.0, score / best)) if best > 0 else 0.0
     top = " sh-card--top" if rank == 1 else ""
     detail_html = f'<p class="sh-card__detail">{html.escape(detail)}</p>' if detail else ""
+    if calib is not None:
+        level, label = calib.band(score)
+        share = calib.share(score)
+        tip = f"{label}: {calib.meaning(level)} Cosine {score:.3f}."
+        score_html = (
+            f'<div class="sh-score sh-score--{level}" title="{html.escape(tip, quote=True)}">'
+            f'<span class="sh-score__bar" aria-hidden="true"><span style="width:{share * 100:.0f}%"></span></span>'
+            f'<span class="sh-score__label">{label}</span></div>'
+        )
+    else:
+        score_html = (
+            f'<div class="sh-score" title="Cosine similarity {score:.3f}. No calibration for this encoder, '
+            f'so no confidence label is shown.">'
+            f'<span class="sh-score__label sh-score__label--raw">score {score:.3f}</span></div>'
+        )
     return (
         f'<li class="sh-card{top}">'
         f'<div class="sh-card__frame">{_media_html(path, name)}'
@@ -363,23 +380,62 @@ def _card_html(
         f'<div class="sh-card__body">'
         f'<p class="sh-card__place">{html.escape(place)}</p>'
         + (f'<p class="sh-card__person">{html.escape(person)}</p>' if person else "")
-        + f'<div class="sh-score" title="Cosine similarity to the query">'
-        f'<span class="sh-score__bar"><span style="width:{share * 100:.0f}%"></span></span>'
-        f'<span class="sh-score__value">{score:.3f}</span></div>'
-        f"{detail_html}"
+        + score_html
+        + f"{detail_html}"
         f'<p class="sh-card__id">{html.escape(tracklet_id)}</p>'
         f"</div></li>"
     )
 
 
-def _results_html(cards: list[str], query: str = "") -> str:
+class ScoreCalibration:
+    """Map an encoder's raw cosine to a fixed-scale bar and a calibrated label.
+
+    Thresholds come from measured correctness, not taste: for PE-L/14 on
+    Alexandria (padded crops, ``query_max``), the top result was correct 71 %
+    of the time when its score was >= 0.29, and only 42-49 % below that
+    (results/failure_analysis/*/per_query.csv). Scores are close together, so
+    a label is the most a single number can honestly say.
+    """
+
+    def __init__(self, lo: float, hi: float, possible: float, strong: float, close_gap: float) -> None:
+        self.lo, self.hi = lo, hi
+        self.possible, self.strong = possible, strong
+        self.close_gap = close_gap
+
+    def share(self, score: float) -> float:
+        return max(0.02, min(1.0, (score - self.lo) / (self.hi - self.lo)))
+
+    def band(self, score: float) -> tuple[str, str]:
+        if score >= self.strong:
+            return "strong", "Strong match"
+        if score >= self.possible:
+            return "possible", "Possible match"
+        return "weak", "Weak match"
+
+    def meaning(self, level: str) -> str:
+        return {
+            "strong": "at this score the top result was right about 7 times in 10 on Alexandria.",
+            "possible": "at this score the top result was right about half the time on Alexandria.",
+            "weak": "below this score the top result was right less than half the time on Alexandria.",
+        }[level]
+
+
+# Calibrated encoders only; others show the raw score without a label.
+SCORE_CALIBRATION: dict[str, ScoreCalibration] = {
+    "pe_core_l14": ScoreCalibration(lo=0.15, hi=0.35, possible=0.23, strong=0.29, close_gap=0.01),
+}
+
+
+def _results_html(cards: list[str], query: str = "", note: str = "") -> str:
     if not cards:
         return _empty_state_html()
     heading = "Top matches" + (f" for “{html.escape(query)}”" if query else "")
+    note_html = f'<p class="sh-results__note" role="note">{html.escape(note)}</p>' if note else ""
     return (
         f'<section class="sh-results" aria-labelledby="sh-results-h">'
         f'<h2 id="sh-results-h" class="sh-results__title">{heading}</h2>'
         f'<p class="sh-results__hint">Ranked by similarity. The right person is in the top five about 85% of the time on Alexandria; compare clothing and actions before deciding.</p>'
+        f"{note_html}"
         f'<ol class="sh-grid">{"".join(cards)}</ol></section>'
     )
 
@@ -475,15 +531,23 @@ def search_ui(
     results = top_k_tracklets(qvec, tracklets, mode, k=PREVIEW_K, hybrid_alpha=alpha)
     if not results:
         return _empty_state_html("No people in this index."), status
-    best = float(results[0][1])
+    # Labels are calibrated for "Best moment" (query_max) scores only.
+    calib = SCORE_CALIBRATION.get(model) if mode == "query_max" else None
+    scores = [float(r[1]) for r in results]
     cards = []
     for rank, (t, fused, g_score, l_score) in enumerate(results, start=1):
         detail = ""
         # Only explain the blend when its two parts actually differ.
         if mode == "global_local" and abs(g_score - l_score) > 1e-4:
             detail = f"whole clip {g_score:.3f} · best moment {l_score:.3f}"
-        cards.append(_card_html(rank, _gallery_media_path(t.media_path), t.tracklet_id, float(fused), best, detail))
-    return _results_html(cards, text), status
+        cards.append(
+            _card_html(rank, _gallery_media_path(t.media_path), t.tracklet_id, float(fused), detail=detail, calib=calib)
+        )
+    note = ""
+    gap = calib.close_gap if calib is not None else 0.01
+    if len(scores) > 1 and scores[0] - scores[1] < gap:
+        note = "Close call: the first two matches score almost the same. Compare them before deciding."
+    return _results_html(cards, text, note), status
 
 
 THEME_CSS = """
@@ -543,7 +607,13 @@ footer { display: none !important; }
 .sh-score { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .sh-score__bar { flex: 1; height: 4px; border-radius: 2px; background: var(--sh-raised); overflow: hidden; }
 .sh-score__bar > span { display: block; height: 100%; background: var(--sh-accent); border-radius: 2px; }
-.sh-score__value { font: 500 0.8125rem/1 var(--sh-mono); color: var(--sh-ink); font-variant-numeric: tabular-nums; }
+.sh-score__label { font-size: 0.8125rem; font-weight: 600; color: var(--sh-ink); white-space: nowrap; }
+.sh-score__label--raw { font: 500 0.8125rem/1 var(--sh-mono); font-weight: 500; color: var(--sh-ink-2); }
+.sh-score--possible .sh-score__bar > span { background: var(--sh-ink-3); }
+.sh-score--weak .sh-score__bar > span { background: var(--sh-line); }
+.sh-score--weak .sh-score__label { color: var(--sh-ink-2); font-weight: 500; }
+.sh-results__note { font-size: 0.875rem; color: var(--sh-ink); margin: -8px 0 16px; padding: 8px 12px;
+  border: 1px solid var(--sh-line); border-radius: 8px; background: var(--sh-raised); max-width: 72ch; }
 #sh-settings { margin-top: 28px !important; }
 #sh-settings .prose table { font-size: 0.875rem; }
 @media (max-width: 1080px) { .sh-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

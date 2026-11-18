@@ -68,6 +68,25 @@ def test_gallery_html_video_shows_frame_preview(tmp_path: Path) -> None:
     assert "#1 demo" in html
 
 
+def test_score_labels_use_fixed_scale_and_calibration() -> None:
+    import sys
+
+    repo = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(repo))
+    from demo.app import SCORE_CALIBRATION, _card_html
+
+    calib = SCORE_CALIBRATION["pe_core_l14"]
+    assert calib.band(0.30)[0] == "strong"
+    assert calib.band(0.25)[0] == "possible"
+    assert calib.band(0.20)[0] == "weak"
+    # Fixed scale: a 0.01 gap stays a small gap, unlike scaling to the best score.
+    assert abs(calib.share(0.296) - calib.share(0.286)) < 0.06
+    html_card = _card_html(1, "", "day1_3/person_1", 0.30, calib=calib)
+    assert "Strong match" in html_card and "Cosine 0.300" in html_card
+    raw = _card_html(1, "", "day1_3/person_1", 0.30)
+    assert "score 0.300" in raw and "Strong match" not in raw
+
+
 def test_build_demo_api_info() -> None:
     import importlib.util
 
