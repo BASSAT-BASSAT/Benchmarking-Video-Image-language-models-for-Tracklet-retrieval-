@@ -39,6 +39,19 @@ Forward cost per frame (fp16, batch 64, measured alone on the GPU):
 | PE-S/16 | 384 | 24 M | 2.3 |
 | PE-T/16 | 384 | 6 M | 0.9 |
 
+## Clean ingestion timings (AC power, GPU otherwise idle)
+
+All 131 Alexandria people; `index_qdrant.py --profile`; ingest time excludes model load (11–18 s).
+
+| Setting | Frames | Ingest | People/s | Rank-1 |
+|---|---:|---:|---:|---:|
+| PE-L, stretched, 64 frames (old) | 7,860 | 130.9 s | 1.0 | 45.0 |
+| PE-L, padded, 64 frames | 7,860 | 128.3 s | 1.0 | 52.7 |
+| **PE-L, padded, 16 frames (new default)** | 2,096 | **38.7 s** | 3.4 | 51.2 |
+| PE-B, padded, 16 frames | 2,096 | 6.8 s | 19.1 | to do |
+
+The threaded loader cut image load + preprocess from about 23 s to about 2 s.
+
 ## Accuracy on Alexandria
 
 Rank-1 / mAP. "padded" = `--fit letterbox`; `/n8` = 8 frames per tracklet (default 64).
@@ -62,7 +75,11 @@ Rank-1 / mAP. "padded" = `--fit letterbox`; `/n8` = 8 frames per tracklet (defau
 | `embeddinggemma2` (old setup) | 47.3 | 47.3 | 59.8 |
 | `embeddinggemma2:letterbox/n8` | 42.7 | 42.7 | 59.9 |
 | `embeddinggemma2:letterbox` | 43.5 | 45.8 | 60.7 |
-| `eva02_clip_l14`, `dfn_clip_l14` (stretched / padded) | to do | | |
+| `pe_core_l14:letterbox/n8+quality` | **52.7** | 52.7 | 65.2 |
+| `pe_core_l14:letterbox/n8+diverse` | 48.1 | 48.1 | 63.1 |
+| `pe_core_l14:letterbox/n16+quality` / `+diverse` | 49.6 / 50.4 | 50.4 / 49.6 | 64.3 / 64.3 |
+| `dfn_clip_l14` → `:letterbox` | 34.4 → 41.2 | 34.4 → 42.0 | 47.3 → 55.9 |
+| `eva02_clip_l14` → `:letterbox` | 20.6 → 30.5 | 20.6 → 31.3 | 36.2 → 46.4 |
 | `mobileclip2_s2`, `mobileclip2_s4` | invalid | | Fail a zero-shot sanity check under open_clip 3.3 / timm 1.0.27 |
 
 Findings:
@@ -86,11 +103,21 @@ Findings:
 |---|---:|---:|---:|
 | combined R1 / mAP | 29.36 / 39.45 | **30.81 / 40.83** | 29.94 / 38.97 |
 | appearance R1 / mAP | 26.16 / 37.10 | **26.45 / 37.51** | 25.87 / — |
-| action R1 | 2.86 | *pending* | *pending* |
+| action R1 | 2.86 | 3.30 | 3.08 |
 
-Padding is a small, consistent gain on GroOT (+0.3 to +1.5). GroOT people are
-small and far away, so the stretch distortion matters less. Action captions sit
-near the floor for every encoder tested: these models barely read verbs.
+Other models on GroOT (best pooling, R1 / mAP):
+
+| Model | Subset | Stretched / native | Padded, 64 frames | Padded, 8 frames |
+|---|---|---|---|---|
+| SigLIP 2 | combined | 27.9 / 38.9 | **29.7 / 40.8** | 26.5 / 37.0 |
+| SigLIP 2 | appearance | 25.6 / 35.1 | **27.0 / 37.9** | 24.1 / 34.4 |
+| SigLIP 2 | action | 2.2 | 2.6 | 2.2 |
+| DFN-CLIP-L | combined | 11.3 / 19.0 | **18.6 / 28.5** | — |
+| EVA02-CLIP-L | combined | 13.4 / 20.6 | **20.9 / 28.9** | — |
+
+With 64 frames, padding helps every model on GroOT; DFN and EVA02 (whose native
+preprocessing centre-crops away the head and feet) gain 7–8 Rank-1. With 8
+frames the gain disappears. Action captions sit near 2–3 % for every encoder.
 
 ## Failure analysis (Alexandria, PE-L padded, `query_max`)
 
