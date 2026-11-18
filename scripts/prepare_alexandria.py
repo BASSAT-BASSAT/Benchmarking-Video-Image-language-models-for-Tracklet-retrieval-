@@ -18,6 +18,12 @@ def main() -> None:
     parser.add_argument("--dest", type=Path, default=None, help="Prepared root (default: datasets/alexandria)")
     parser.add_argument("--overwrite", action="store_true", help="Re-extract and re-crop")
     parser.add_argument("--unpack-only", action="store_true")
+    parser.add_argument(
+        "--margin",
+        type=float,
+        default=0.0,
+        help="Widen each box by this fraction per side (0.10 -> datasets/alexandria_m10, key alexandria:all@m10)",
+    )
     args = parser.parse_args()
 
     entries = unpack_alexandria(args.zips, args.source, args.videos, overwrite=args.overwrite)
@@ -30,7 +36,7 @@ def main() -> None:
         "clips_without_captions": [e["project"] for e in entries if not e["captioned"]],
     }
     if not args.unpack_only:
-        files = prepare_alexandria(args.source, args.dest, overwrite=args.overwrite)
+        files = prepare_alexandria(args.source, args.dest, overwrite=args.overwrite, margin=args.margin)
         summary["split_tables"] = len(files)
     print(json.dumps(summary, indent=2))
 

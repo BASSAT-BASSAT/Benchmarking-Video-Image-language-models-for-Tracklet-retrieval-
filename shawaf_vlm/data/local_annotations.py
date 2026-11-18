@@ -111,8 +111,13 @@ def prepare_project(
     dest_root: Path | str,
     *,
     overwrite: bool = False,
+    margin: float = 0.0,
 ) -> Path | None:
-    """Crop person tracklets from ``reid_index.json`` into ``dest_root/prepared/``."""
+    """Crop person tracklets from ``reid_index.json`` into ``dest_root/prepared/``.
+
+    ``margin`` widens each box by that fraction of its width / height on every
+    side (clipped to the frame), so hand-held objects stay in view.
+    """
 
     project_dir = Path(project_dir)
     dest_root = Path(dest_root)
@@ -156,7 +161,7 @@ def prepare_project(
             out_name = f"crop_{index:06d}.jpg"
             out_path = track_dir / out_name
             if overwrite or not out_path.is_file():
-                _save_crop(frame_path, bbox, out_path, Image=Image)
+                _save_crop(frame_path, bbox, out_path, Image=Image, margin=margin)
             if out_path.is_file():
                 rel = out_path.relative_to(dest_root).as_posix()
                 crop_paths.append(rel)
@@ -383,8 +388,12 @@ def _save_crop(
     out_path: Path,
     *,
     Image,
+    margin: float = 0.0,
 ) -> None:
     x1, y1, x2, y2 = (float(v) for v in bbox)
+    if margin > 0:
+        dx, dy = (x2 - x1) * margin, (y2 - y1) * margin
+        x1, y1, x2, y2 = x1 - dx, y1 - dy, x2 + dx, y2 + dy
     with Image.open(frame_path) as img:
         w, h = img.size
         left = max(0, min(w - 1, int(round(x1))))

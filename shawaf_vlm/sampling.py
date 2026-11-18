@@ -289,12 +289,23 @@ def resolve_dense_frame_paths(
     if not paths:
         return []
     if len(paths) == 1 and is_video_file(paths[0]):
-        return sample_video_frames_by_fps(
+        if select == "uniform":
+            return sample_video_frames_by_fps(
+                paths[0],
+                sample_fps=sample_fps,
+                max_frames=max_frames,
+                cache_dir=frame_cache,
+            )
+        # Decode up to 4x more candidates (max 64), then keep the best max_frames.
+        from shawaf_vlm.frame_select import select_frames
+
+        candidates = sample_video_frames_by_fps(
             paths[0],
             sample_fps=sample_fps,
-            max_frames=max_frames,
+            max_frames=min(64, max_frames * 4),
             cache_dir=frame_cache,
         )
+        return select_frames(candidates, max_frames, strategy=select)
     if len(paths) > max_frames:
         if select != "uniform":
             from shawaf_vlm.frame_select import select_frames

@@ -46,9 +46,34 @@ POOLS = ("query_max", "global_local", "mean")
 OUT = ROOT / "results" / "rescore"
 
 
-def tag_of(args) -> str:
+def gallery_tag(args) -> str:
     tag = f"{args.model}:{args.fit or 'native'}/n{args.max_frames}"
-    return tag + (f"+{args.select}" if args.select != "uniform" else "")
+    tag += f"+{args.select}" if args.select != "uniform" else ""
+    return tag if args.dataset == "alexandria:all" else f"{args.dataset}|{tag}"
+
+
+def tag_of(args) -> str:
+    tag = gallery_tag(args)
+    if args.query_mode != "full":
+        tag += f"|q={args.query_mode}@{args.action_weight:g}"
+    return tag
+
+
+def query_texts(mode: str, weight: float, tracks, caps, fallback) -> list[tuple[float, list[str]]]:
+    """Weighted text sets whose similarities are summed: [(weight, texts), ...]."""
+
+    from shawaf_vlm.action_split import action_query
+
+    full = [caps.get(t, {}).get("caption_fixed") or fallback[t] for t in tracks]
+    if mode == "full":
+        return [(1.0, full)]
+    app = [caps[t]["appearance"] or full[i] for i, t in enumerate(tracks)]
+    act = [action_query(caps[t]["action"]) or full[i] for i, t in enumerate(tracks)]
+    if mode == "full+action":
+        return [(1.0, full), (weight, act)]
+    if mode == "app+action":
+        return [(1.0 - weight, app), (weight, act)]
+    raise ValueError(mode)
 
 
 def safe(tag: str) -> str:
@@ -120,12 +145,31 @@ def main() -> None:
     parser.add_argument("--pairs", type=Path, default=ROOT / "datasets" / "alexandria" / "semantic_pairs.csv")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--from-cache", action="store_true", help="Re-score cached similarities (no GPU)")
+    parser.add_argument(
+        "--query-mode",
+        choices=("full", "full+action", "app+action"),
+        default="full",
+        help="full caption; full + w*action; (1-w)*appearance + w*action (Alexandria only)",
+    )
+    parser.add_argument("--action-weight", type=float, default=0.5)
+    parser.add_argument(
+        "--from-gallery",
+        action="store_true",
+        help="Reuse the cached gallery embeddings of this config; only encode the queries",
+    )
     args = parser.parse_args()
 
     tag = tag_of(args)
-    (OUT / "sims").mkdir(parents=True, exist_ok=True)
+    for sub in ("sims", "gallery"):
+        (OUT / sub).mkdir(parents=True, exist_ok=True)
     cache = OUT / "sims" / f"{safe(tag)}.npz"
-    caps, binary, graded = load_labels(args.actions, args.pairs)
+    gallery_cache = OUT / "gallery" / f"{safe(gallery_tag(args))}.npz"
+    if args.dataset.startswith("alexandria"):
+        caps, binary, graded = load_labels(args.actions, args.pairs)
+    else:
+        caps, binary, graded = {}, {}, {}
+    if args.query_mode != "full" and not caps:
+        raise SystemExit("--query-mode needs the reviewed Alexandria captions (actions.csv)")
     timing: dict[str, object] = {}
 
     if args.from_cache:
@@ -147,40 +191,57 @@ def main() -> None:
         encoder = build_encoder(args.model, device=args.device, fit=args.fit)
         sync()
         t1 = time.perf_counter()
-        groups, gpids, _ = _prepare_window_gallery(
-            splits.gallery, window=8, stride=4, sample_fps=8.0, max_frames=args.max_frames, select=args.select
-        )
-        flat, owners = [], []
-        for index, windows in enumerate(groups):
-            for window in windows:
-                flat.append(window)
-                owners.append(index)
-        frames = len({str(p) for w in flat for p in w})
-        feats = encoder.encode_videos(flat, batch_size=8)
-        sync()
-        t2 = time.perf_counter()
-        grouped = _group_clip_features(feats, owners, len(groups))
         g_tracks = [g.track_id for g in splits.gallery]
-        queries = [q for q in splits.query if q.track_id in caps]
+        if args.from_gallery:
+            data = np.load(gallery_cache, allow_pickle=True)
+            grouped, gpids = list(data["grouped"]), data["gpids"]
+            base = OUT / f"{safe(gallery_tag(args))}.json"
+            prior = json.loads(base.read_text(encoding="utf-8")).get("timing", {}) if base.is_file() else {}
+            t2 = time.perf_counter()
+            frames = prior.get("frames", 0)
+        else:
+            groups, gpids, _ = _prepare_window_gallery(
+                splits.gallery, window=8, stride=4, sample_fps=8.0, max_frames=args.max_frames, select=args.select
+            )
+            flat, owners = [], []
+            for index, windows in enumerate(groups):
+                for window in windows:
+                    flat.append(window)
+                    owners.append(index)
+            frames = len({str(p) for w in flat for p in w})
+            feats = encoder.encode_videos(flat, batch_size=8)
+            sync()
+            t2 = time.perf_counter()
+            grouped = _group_clip_features(feats, owners, len(groups))
+            gpids = np.asarray(gpids)
+            np.savez(gallery_cache, grouped=np.array(grouped, dtype=object), gpids=gpids)
+        queries = [q for q in splits.query if not caps or q.track_id in caps]
         q_tracks = [q.track_id for q in queries]
         qpids = np.array([int(q.person_id) for q in queries])
-        gpids = np.asarray(gpids)
-        text = np.asarray(encoder.encode_texts([caps[t]["caption_fixed"] for t in q_tracks]), dtype=np.float32)
+        fallback = {q.track_id: q.text for q in queries}
+        sets = query_texts(args.query_mode, args.action_weight, q_tracks, caps, fallback)
+        encoded = [(w, np.asarray(encoder.encode_texts(texts), dtype=np.float32)) for w, texts in sets]
         sync()
         t3 = time.perf_counter()
-        sims = {
-            "query_max": query_max_similarity(text, grouped),
-            "global_local": hybrid_global_local_similarity(text, grouped, alpha=0.5),
-            "mean": global_mean_similarity(text, grouped),
-        }
+        sims = {}
+        for pool, fn in (
+            ("query_max", query_max_similarity),
+            ("global_local", lambda t, g: hybrid_global_local_similarity(t, g, alpha=0.5)),
+            ("mean", global_mean_similarity),
+        ):
+            sims[pool] = sum(w * fn(text, grouped) for w, text in encoded)
         np.savez(cache, q_tracks=np.array(q_tracks), g_tracks=np.array(g_tracks), qpids=qpids, gpids=gpids, **sims)
-        timing = {
-            "model_load_s": round(t1 - t0, 2), "encode_s": round(t2 - t1, 2), "text_s": round(t3 - t2, 2),
-            "people": len(g_tracks), "frames": frames,
-            "s_per_person": round((t2 - t1) / len(g_tracks), 4),
-            "ms_per_frame": round(1000 * (t2 - t1) / max(frames, 1), 2),
-            "peak_mem_mb": round(torch.cuda.max_memory_allocated() / 2**20, 1) if torch.cuda.is_available() else None,
-        }
+        if args.from_gallery:
+            timing = {**prior, "text_s": round(t3 - t2, 2), "text_encodes_per_query": len(sets)}
+        else:
+            timing = {
+                "model_load_s": round(t1 - t0, 2), "encode_s": round(t2 - t1, 2), "text_s": round(t3 - t2, 2),
+                "people": len(g_tracks), "frames": frames,
+                "s_per_person": round((t2 - t1) / len(g_tracks), 4),
+                "ms_per_frame": round(1000 * (t2 - t1) / max(frames, 1), 2),
+                "text_encodes_per_query": len(sets),
+                "peak_mem_mb": round(torch.cuda.max_memory_allocated() / 2**20, 1) if torch.cuda.is_available() else None,
+            }
 
     scores = score_all(sims, q_tracks, g_tracks, qpids, gpids, binary, graded)
     labelled = sum(1 for (q, _), v in graded.items() if v in (0.0, 1.0))

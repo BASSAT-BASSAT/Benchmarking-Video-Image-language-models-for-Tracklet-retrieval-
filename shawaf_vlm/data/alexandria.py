@@ -67,6 +67,18 @@ def default_prepared_root() -> Path:
     return repo_root() / "datasets" / PREPARED_DIRNAME
 
 
+def margin_variant(margin: float) -> str:
+    """0.10 -> 'm10'."""
+
+    return f"m{int(round(margin * 100))}"
+
+
+def variant_root(variant: str) -> Path:
+    """Prepared root of a crop variant, e.g. 'm10' -> datasets/alexandria_m10."""
+
+    return repo_root() / "datasets" / f"{PREPARED_DIRNAME}_{variant}"
+
+
 def default_video_root() -> Path:
     return repo_root() / "Videos-taken_by_us"
 
@@ -173,11 +185,20 @@ def prepare_alexandria(
     prepared_root: Path | str | None = None,
     *,
     overwrite: bool = False,
+    margin: float = 0.0,
 ) -> list[Path]:
-    """Crop tracklets and write ``all``, per-day and per-clip split tables."""
+    """Crop tracklets and write ``all``, per-day and per-clip split tables.
+
+    With ``margin`` > 0 and no explicit ``prepared_root``, crops go to a
+    separate variant root (``datasets/alexandria_m10`` for 0.10), loaded as
+    ``alexandria:all@m10``.
+    """
 
     src = Path(source_root) if source_root is not None else default_source_root()
-    dest = Path(prepared_root) if prepared_root is not None else default_prepared_root()
+    if prepared_root is not None:
+        dest = Path(prepared_root)
+    else:
+        dest = variant_root(margin_variant(margin)) if margin > 0 else default_prepared_root()
     dest.mkdir(parents=True, exist_ok=True)
 
     written: list[Path] = []
@@ -187,7 +208,7 @@ def prepare_alexandria(
         match = _PROJECT_RE.match(project.name)
         if not match:
             continue
-        path = prepare_project(project, dest, overwrite=overwrite)
+        path = prepare_project(project, dest, overwrite=overwrite, margin=margin)
         if path is None:
             continue
         written.append(path)
@@ -214,7 +235,11 @@ def load_alexandria(
     split: str = SPLIT_NAME,
     root: Path | str | None = None,
 ) -> TVMarsSplits:
-    prepared = Path(root) if root is not None else default_prepared_root()
+    config, _, variant = config.partition("@")
+    if root is not None:
+        prepared = Path(root)
+    else:
+        prepared = variant_root(variant) if variant else default_prepared_root()
     if not (prepared / METADATA_SUBDIR / f"{config}-{split}.jsonl").is_file():
         raise FileNotFoundError(
             f"Alexandria config {config!r} not prepared under {prepared}. "
