@@ -128,10 +128,13 @@ def write_review_page(rows: list[dict[str, str]], gallery: dict[str, list[Path]]
         )
         flag = f'<span class="flag">{html.escape(r["flag"])}</span>' if r["flag"] else ""
         note = f'<p class="note">{html.escape(r["note"])}</p>' if r["note"] else ""
-        folder = Path(r["crops_folder"]).resolve().as_uri()
-        preview = (
-            f' · <a href="{html.escape(Path(r["preview"]).resolve().as_uri())}">preview video</a>'
-            if r["preview"] else ""
+        # Browsers refuse to open local folders from a page, so show every crop inline.
+        all_imgs = "".join(
+            f'<img src="{html.escape(p.resolve().as_uri())}" alt="" loading="lazy">' for p in crops
+        )
+        everything = (
+            f'<details><summary>Show all {len(crops)} crops</summary><div class="all">{all_imgs}</div></details>'
+            if crops else ""
         )
         items.append(
             f'<article><div class="crops">{imgs}</div><div class="text">'
@@ -141,7 +144,7 @@ def write_review_page(rows: list[dict[str, str]], gallery: dict[str, list[Path]]
             f'<p><b>Appearance</b> {html.escape(r["appearance"])}</p>'
             f'<p><b>Action</b> {html.escape(r["action"]) or "<i>none</i>"} '
             f'<span class="cls">{html.escape(r["action_class"])}</span></p>{note}'
-            f'<p class="links"><a href="{html.escape(folder)}">crops folder</a>{preview}</p>'
+            f"{everything}"
             f"</div></article>"
         )
     page = f"""<!doctype html><html lang="en"><meta charset="utf-8">
@@ -153,7 +156,9 @@ article {{ display: grid; grid-template-columns: 300px 1fr; gap: 16px; backgroun
 h2 {{ font-size: 16px; margin: 0 0 6px; }} p {{ margin: 3px 0; }} b {{ display: inline-block; width: 92px; color: #47515d; font-weight: 600; }}
 .flag {{ font-size: 12px; background: #fff4d6; color: #7a5200; padding: 2px 8px; border-radius: 99px; margin-left: 6px; }}
 .cls {{ font-size: 12px; background: #e6f4f1; color: #0f7a6c; padding: 2px 8px; border-radius: 99px; }}
-.note {{ color: #7a5200; }} .links {{ margin-top: 8px; font-size: 13px; }}
+.note {{ color: #7a5200; }}
+details {{ margin-top: 8px; font-size: 13px; }} summary {{ cursor: pointer; color: #0f7a6c; }}
+.all {{ display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px; }} .all img {{ width: 64px; height: 132px; object-fit: contain; background: #111; border-radius: 3px; }}
 @media (max-width: 640px) {{ article {{ grid-template-columns: 1fr; }} }}
 </style>
 <h1>Alexandria caption review</h1>
