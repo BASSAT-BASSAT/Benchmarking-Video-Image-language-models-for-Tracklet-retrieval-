@@ -45,6 +45,9 @@ class FinetuneConfig:
     grad_checkpoint: bool = False
     max_steps: int | None = None  # smoke / CI
     log_every: int = 20
+    # Kaggle /kaggle/working is tight: keep only last.pt + best.pt (no optimizer).
+    save_every_epoch: bool = False
+    save_optimizer: bool = False
 
 
 BASE_CHECKPOINTS = {
@@ -171,16 +174,28 @@ def train_pe(config: FinetuneConfig) -> Path:
         }
         history.append(row)
         print(json.dumps(row), flush=True)
-        ckpt = output / f"epoch_{epoch:03d}.pt"
+        metrics = {"train_loss": train_loss, "val_loss": val_loss}
+        opt = optimizer if config.save_optimizer else None
+        last_path = output / "last.pt"
         save_finetune_checkpoint(
-            ckpt,
+            last_path,
             model,
             base_key=config.base_key,
             base_checkpoint=base_ckpt,
             epoch=epoch,
-            metrics={"train_loss": train_loss, "val_loss": val_loss},
-            optimizer=optimizer,
+            metrics=metrics,
+            optimizer=opt,
         )
+        if config.save_every_epoch:
+            save_finetune_checkpoint(
+                output / f"epoch_{epoch:03d}.pt",
+                model,
+                base_key=config.base_key,
+                base_checkpoint=base_ckpt,
+                epoch=epoch,
+                metrics=metrics,
+                optimizer=opt,
+            )
         if val_loss <= best_val:
             best_val = val_loss
             save_finetune_checkpoint(
@@ -189,15 +204,18 @@ def train_pe(config: FinetuneConfig) -> Path:
                 base_key=config.base_key,
                 base_checkpoint=base_ckpt,
                 epoch=epoch,
-                metrics={"train_loss": train_loss, "val_loss": val_loss},
+                metrics=metrics,
             )
+            print(f"new best val_loss={val_loss:.4f} → {best_path}", flush=True)
         (output / "history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
         if config.max_steps and global_step >= config.max_steps:
             break
 
     if not best_path.is_file():
-        # No val set: last epoch is best.
-        last = sorted(output.glob("epoch_*.pt"))[-1]
+        # No val improvement (or no val): promote last weights.
+        last = output / "last.pt"
+        if not last.is_file():
+            raise FileNotFoundError(f"No checkpoint written under {output}")
         best_path.write_bytes(last.read_bytes())
     return best_path
 
