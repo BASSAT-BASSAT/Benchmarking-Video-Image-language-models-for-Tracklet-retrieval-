@@ -27,6 +27,7 @@ Re-runs are **resume-safe**: finished JSON files are skipped automatically.
 | [`activity-net-languagebind-internvideo.ipynb`](activity-net-languagebind-internvideo.ipynb) | Kaggle (archived) | **Done** — same |
 | [`pooling_methods_comparison.ipynb`](pooling_methods_comparison.ipynb) | Local / Colab | **Optional** — small TVPReid ablation (change `MODEL` / `DATASET_KEY`) |
 | [`kaggle_finetuning.ipynb`](kaggle_finetuning.ipynb) | Kaggle | **Optional** — InternVideo2-1B-s2 fine-tune on TVPReid train; not part of zero-shot headline |
+| [`finetune_pe_kaggle.ipynb`](finetune_pe_kaggle.ipynb) | Kaggle 2×T4 | **Next for accuracy** — PE-B Run A / PE-L Run B on packaged RSTPReid (+ CUHK); see [`docs/finetuning_plan.md`](../docs/finetuning_plan.md) |
 
 **Not in this folder:** local demo indexing (`scripts/index_qdrant.py`), CLI eval (`scripts/eval_encoder.py`), local annotations (`scripts/prepare_local_annotations.py`).
 

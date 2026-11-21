@@ -45,3 +45,15 @@ tvpreid_frames/
 
 # Raw Alexandria footage (private, large)
 Videos-taken_by_us/
+
+# Packaged fine-tune data (rebuild with scripts/prepare_finetune_kaggle.py)
+# Keep README + metadata templates tracked.
+finetune_data/*/images/
+finetune_data/*/train.jsonl
+finetune_data/*/val.jsonl
+finetune_data/**/*.jpg
+finetune_data/**/*.jpeg
+finetune_data/**/*.png
+!finetune_data/README.md
+!finetune_data/_dataset_metadata_template.json
+!finetune_data/**/dataset-metadata.json

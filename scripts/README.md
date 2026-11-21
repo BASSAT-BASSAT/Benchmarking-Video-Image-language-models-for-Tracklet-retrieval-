@@ -12,6 +12,16 @@
 | `failure_analysis.py` | Analysis | Per-query ranks, miss buckets (duplicate caption, same clip, other clip) and contact sheets |
 | `export_vision_onnx.py` | Speed | Experimental. Export a vision tower to ONNX. `--trt` prints `trtexec` and does not run it |
 | `distill_pe.py` | Speed | Experimental. `--dry-run` checks person crops for PE distillation. Does not train (known checkpoint bug, see `shawaf_vlm/distill/__init__.py`) |
+| `build_finetune_dataset.py` | Fine-tune | Package RSTPReid / TVPReid / CUHK / ICFG → `finetune_data/<source>/` |
+| `prepare_finetune_kaggle.py` | Fine-tune | Download + package RSTPReid + TVPReid train/val (Internet) |
+| `train_pe_finetune.py` | Fine-tune | Run A (PE-B full) / Run B (PE-L last-4 or LoRA) on packaged data |
+| `eval_finetuned.py` | Fine-tune | Alexandria + GroOT + action_gap + failure_analysis for `pe_core_*_ft` |
+| `review_semantic_maybe.py` | Labels | Soft-review Alexandria maybe pairs; write `maybe_queue.csv` |
+| `../demo/semantic_review_app.py` | Labels | Interactive Gradio Yes/No UI for open maybes (`python demo/semantic_review_app.py`) |
+| `action_scene_probe.py` | Analysis | Action vs scene disentanglement on Alexandria |
+| `bootstrap_ci.py` | Paper | Bootstrap Rank-1 CIs from per-query ranks |
+| `rescore.py` | Eval | Hard + meaning-based metrics (cached sims) |
+| `action_gap.py` | Analysis | Full vs appearance vs action queries |
 | `smoke_demo_stack.py` | Demo | Quick import / UI structure checks (no server) |
 | `make_figures.py` | Figures | Regenerate `assets/*.png` (base models + `embeddinggemma2_tier_a_v1.csv`) |
 | `prepare_local_annotations.py` | Data | Crop `Annotations/` → `datasets/shawaf_annotations` |

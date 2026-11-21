@@ -28,6 +28,10 @@ datasets **private**.
 Never train on Alexandria, GroOT, RSTPReid test, or TVPReid test. Training on
 TVPReid train makes TVPReid results in-domain, so label them that way.
 
+**Default start (Kaggle, download in-notebook):** RSTPReid train+val + TVPReid
+train+val via `scripts/prepare_finetune_kaggle.py` /
+`notebooks/finetune_pe_kaggle.ipynb` (Internet on; no attached datasets required).
+
 ## 2. Packaging for Kaggle
 
 `scripts/build_finetune_dataset.py` (to write) converts each source into:
@@ -79,3 +83,16 @@ GitHub repo, the same way `notebooks/kaggle_finetuning.ipynb` already does.
 2. Converter + RSTPReid package; first Kaggle run as a pipeline check.
 3. Add CUHK-PEDES and ICFG-PEDES, then full runs A and B.
 4. Local evaluation and paper tables.
+
+## Implemented in repo
+
+| Piece | Path |
+|---|---|
+| Dataset packaging | `scripts/build_finetune_dataset.py` |
+| Loss / data / train loop | `shawaf_vlm/finetune/` |
+| CLI | `scripts/train_pe_finetune.py` |
+| Kaggle notebook | `notebooks/finetune_pe_kaggle.ipynb` |
+| Eval registry keys | `pe_core_b16_ft`, `pe_core_l14_ft` (`SHAWAF_PE_B16_FT` / `SHAWAF_PE_L14_FT`) |
+| Eval harness | `scripts/eval_finetuned.py` |
+| Paper claim lock | `docs/paper_claim.md` |
+| CPU tests | `tests/test_finetune.py` |

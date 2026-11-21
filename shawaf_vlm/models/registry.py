@@ -68,6 +68,20 @@ _SPECS: dict[str, EncoderSpec] = {
         builder="pe_core_b16",
         notes="Smaller PE-Core distilled by Meta. 224px. Public.",
     ),
+    "pe_core_b16_ft": EncoderSpec(
+        key="pe_core_b16_ft",
+        label="Perception Encoder B/16 (fine-tuned)",
+        checkpoint="local:SHAWAF_PE_B16_FT",
+        builder="pe_core_b16_ft",
+        notes="Fine-tuned PE-B/16. Set SHAWAF_PE_B16_FT to best.pt from finetune.",
+    ),
+    "pe_core_l14_ft": EncoderSpec(
+        key="pe_core_l14_ft",
+        label="Perception Encoder L/14 (fine-tuned)",
+        checkpoint="local:SHAWAF_PE_L14_FT",
+        builder="pe_core_l14_ft",
+        notes="Fine-tuned PE-L/14. Set SHAWAF_PE_L14_FT to best.pt from finetune.",
+    ),
     "pe_core_s16": EncoderSpec(
         key="pe_core_s16",
         label="Perception Encoder S/16",
@@ -280,6 +294,18 @@ def _build_pe_core_b16(device: str, image_size: int | None = None, fit: str | No
     return PeCoreB16Encoder(device=device, image_size=image_size, fit=fit)
 
 
+def _build_pe_core_b16_ft(device: str, image_size: int | None = None, fit: str | None = None) -> VideoTextEncoder:
+    from shawaf_vlm.finetune.encoder import FinetunedPeCoreB16Encoder
+
+    return FinetunedPeCoreB16Encoder(device=device, image_size=image_size, fit=fit)
+
+
+def _build_pe_core_l14_ft(device: str, image_size: int | None = None, fit: str | None = None) -> VideoTextEncoder:
+    from shawaf_vlm.finetune.encoder import FinetunedPeCoreL14Encoder
+
+    return FinetunedPeCoreL14Encoder(device=device, image_size=image_size, fit=fit)
+
+
 def _build_pe_core_s16(device: str, image_size: int | None = None, fit: str | None = None) -> VideoTextEncoder:
     from shawaf_vlm.models.frame_encoders import PeCoreS16Encoder
 
@@ -373,6 +399,8 @@ _BUILDERS: dict[str, Callable[..., VideoTextEncoder]] = {
     "siglip2": _build_siglip2,
     "pe_core_l14": _build_pe_core_l14,
     "pe_core_b16": _build_pe_core_b16,
+    "pe_core_b16_ft": _build_pe_core_b16_ft,
+    "pe_core_l14_ft": _build_pe_core_l14_ft,
     "pe_core_s16": _build_pe_core_s16,
     "pe_core_t16": _build_pe_core_t16,
     "mobileclip2_s2": _build_mobileclip2_s2,
