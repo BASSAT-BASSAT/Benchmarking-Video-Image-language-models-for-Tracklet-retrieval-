@@ -119,9 +119,14 @@ def download_tvpreid(
     split: str = "test",
     token: str | None = None,
     local_dir: Path | str | None = None,
-    max_workers: int = 8,
+    max_workers: int | None = None,
 ) -> Path:
-    """Download only the requested split's videos, with a tqdm file bar."""
+    """Download only the requested split's videos, with a tqdm file bar.
+
+    ``max_workers`` defaults adaptively inside ``download_hub_video_dataset``
+    (1–2 for large train pulls) to avoid Hugging Face 429 storms. The Hub
+    dataset is public; 429 means rate limit, not private access.
+    """
 
     try:
         import huggingface_hub  # noqa: F401
@@ -137,14 +142,17 @@ def download_tvpreid(
     split = _normalize_split(split)
     dest = default_download_root("TVPReid", local_dir)
     try:
-        return download_hub_video_dataset(
-            repo_id=repo_id,
-            configs=normalized,
-            split=split,
-            dest=dest,
-            token=token,
-            max_workers=max_workers,
-        )
+        # One subset at a time is gentler on Hub rate limits for train (~5k files).
+        for config in normalized:
+            download_hub_video_dataset(
+                repo_id=repo_id,
+                configs=(config,),
+                split=split,
+                dest=dest,
+                token=token,
+                max_workers=max_workers,
+            )
+        return dest
     except Exception as exc:
         raise TVPReidAccessError(
             missing_tvpreid_message(f"Failed to download {repo_id}: {exc}")
