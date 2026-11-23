@@ -169,7 +169,7 @@ def test_train_pe_smoke_max_steps(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         FinetuneConfig(
             base_key="pe_core_b16",
             train_jsonl=[str(train_jsonl)],
-            val_jsonl=[],
+            val_jsonl=[str(train_jsonl)],
             image_root=str(tmp_path),
             output_dir=str(out),
             epochs=1,
@@ -184,6 +184,22 @@ def test_train_pe_smoke_max_steps(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         )
     )
     assert Path(best).is_file()
+
+
+def test_identity_balanced_sampler_draws_per_identity() -> None:
+    from shawaf_vlm.finetune.data import IdentityBalancedSampler
+
+    samples = [
+        FinetuneSample(image=f"{i}.jpg", person_id="tvp_a", captions=("x",), split="train", source="tvpreid")
+        for i in range(50)
+    ] + [
+        FinetuneSample(image="r.jpg", person_id="rstp_b", captions=("y",), split="train", source="rstpreid")
+    ]
+    sampler = IdentityBalancedSampler(samples, per_identity=2, seed=0)
+    picks = list(sampler)
+    assert len(picks) == len(sampler) == 4
+    assert sum(1 for i in picks if samples[i].person_id == "tvp_a") == 2
+    assert sum(1 for i in picks if samples[i].person_id == "rstp_b") == 2
 
 
 def test_lora_wraps_vision_attn_and_exports_merged_keys() -> None:

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 
 # Never train on these *sources* (held-out eval / gated).
 # TVPReid *train/val* packaging uses source ``tvpreid`` and is allowed.
@@ -149,6 +149,39 @@ def _random_erase(image: Image.Image, rng: random.Random, area_ratio: float = 0.
     out = image.copy()
     out.paste(patch, (left, top))
     return out
+
+
+class IdentityBalancedSampler(Sampler[int]):
+    """Each epoch draws ``per_identity`` random rows per person_id.
+
+    TVPReid windows yield dozens of near-duplicate frames per video while an
+    RSTPReid identity has a handful of images; sampling per identity keeps the
+    sources balanced and turns the extra frames into temporal augmentation.
+    """
+
+    def __init__(self, samples: list[FinetuneSample], per_identity: int = 2, seed: int = 0) -> None:
+        groups: dict[str, list[int]] = {}
+        for index, sample in enumerate(samples):
+            groups.setdefault(sample.person_id, []).append(index)
+        self.groups = list(groups.values())
+        self.per_identity = max(1, int(per_identity))
+        self.seed = seed
+        self._epoch = 0
+
+    def __len__(self) -> int:
+        return len(self.groups) * self.per_identity
+
+    def __iter__(self):
+        rng = random.Random(self.seed + self._epoch)
+        self._epoch += 1
+        picks: list[int] = []
+        for members in self.groups:
+            if len(members) >= self.per_identity:
+                picks.extend(rng.sample(members, self.per_identity))
+            else:
+                picks.extend(rng.choice(members) for _ in range(self.per_identity))
+        rng.shuffle(picks)
+        return iter(picks)
 
 
 def collate_batch(batch):
