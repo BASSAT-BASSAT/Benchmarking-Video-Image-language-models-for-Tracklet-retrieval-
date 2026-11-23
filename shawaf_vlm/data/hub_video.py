@@ -5,16 +5,19 @@ they reference. Each JSONL row has ``video`` (repo-relative mp4 path),
 ``video_id``, ``captions``, and ``subset``. Every row is one gallery video;
 every caption is one query whose only positive is that video.
 
-Hugging Face rate-limits high-volume *file* fetches (especially via Xet): about
-1000 requests / 5 minutes. TVPReid train alone is ~5k mp4s, so we keep workers
-low, disable Xet, and cool down globally on 429. The dataset is public; 429 is
-not an access error.
+Hugging Face rate-limits high-volume *file* fetches: about 1000 requests / 5
+minutes, and TVPReid train alone is ~5k mp4s. Each split is therefore also
+published as ``archives/<config>-<split>.tar`` (see
+``scripts/pack_hub_video_archives.py``) and downloaded in one request; per-file
+fetching with a global 429 cooldown is only the fallback. The dataset is public;
+429 is not an access error.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import tarfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -90,6 +93,13 @@ def download_hub_video_dataset(
     if not missing:
         return dest
 
+    for config in configs:
+        _fetch_archive(repo_id, f"archives/{config}-{split}.tar", auth_token, dest)
+    missing = [rel for rel in video_rels if not (dest / rel).is_file()]
+    if not missing:
+        return dest
+    print(f"Per-file fallback for {len(missing)} videos", flush=True)
+
     # Large splits (TVPReid train ~5k) must stay at 1–2 workers or HF 429s.
     if max_workers is None:
         max_workers = 1 if len(missing) > 1500 else 2 if len(missing) > 400 else 4
@@ -115,6 +125,44 @@ def download_hub_video_dataset(
             if start + chunk < len(missing) and len(missing) > 400:
                 time.sleep(2.0)
     return dest
+
+
+def _fetch_archive(repo_id: str, filename: str, token: str | None, dest: Path) -> bool:
+    """Download + extract one split tar (one request instead of thousands)."""
+
+    try:
+        tar_path = Path(hub_file(repo_id=repo_id, filename=filename, token=token, dest=dest))
+    except Exception as exc:
+        if "404" in _error_text(exc) or "EntryNotFound" in type(exc).__name__:
+            print(f"No {filename} on the Hub; using per-file downloads", flush=True)
+            return False
+        raise
+    print(f"Extracting {filename} ({tar_path.stat().st_size / 2**20:.0f} MB)…", flush=True)
+    with tarfile.open(tar_path) as tar:
+        try:
+            tar.extractall(dest, filter="data")
+        except TypeError:  # Python without extraction filters
+            tar.extractall(dest)
+    tar_path.unlink()
+    return True
+
+
+def _error_text(exc: BaseException) -> str:
+    """Message of ``exc`` plus its causes (hf_hub wraps 429s in LocalEntryNotFoundError)."""
+
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        parts.append(f"{type(current).__name__}: {current}")
+        current = current.__cause__ or current.__context__
+    return " | ".join(parts)
+
+
+def _is_rate_limit(exc: BaseException) -> bool:
+    text = _error_text(exc)
+    return any(key in text for key in ("429", "Too Many Requests", "server under pressure"))
 
 
 def hub_file(
@@ -145,7 +193,7 @@ def hub_file(
             )
         except Exception as exc:
             last = exc
-            if "429" not in str(exc) and "Too Many Requests" not in str(exc):
+            if not _is_rate_limit(exc):
                 raise
             # Cool down longer than before; share the pause across workers.
             wait = min(360, 30 * (2**attempt))
