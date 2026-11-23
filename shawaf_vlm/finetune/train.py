@@ -38,11 +38,13 @@ class FinetuneConfig:
     device: str = "cuda"
     seed: int = 0
     resume: str | None = None
-    # Run B: freeze all but last N vision blocks (+ text tower always trained lightly)
-    unfreeze_last_blocks: int | None = None  # None = full fine-tune (Run A)
+    # Freeze early vision; train last N blocks + text. None = full FT (overfits fast on PEDES).
+    unfreeze_last_blocks: int | None = 6
     use_lora: bool = False
     lora_rank: int = 8
     grad_checkpoint: bool = False
+    # Keep CLIP temperature fixed — letting it grow sharpens logits and accelerates overfit.
+    freeze_logit_scale: bool = True
     max_steps: int | None = None  # smoke / CI
     log_every: int = 20
     # Kaggle /kaggle/working is tight: keep only last.pt + best.pt (no optimizer).
@@ -270,6 +272,21 @@ def _build_trainable_pe(config: FinetuneConfig, device: str):
     elif config.unfreeze_last_blocks is not None:
         _freeze_except_last_blocks(model, config.unfreeze_last_blocks)
 
+    if config.freeze_logit_scale:
+        for name, param in model.named_parameters():
+            if "logit_scale" in name:
+                param.requires_grad = False
+
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in model.parameters())
+    print(
+        f"trainable params {trainable:,} / {total:,}"
+        f" ({100.0 * trainable / max(total, 1):.1f}%)"
+        f" unfreeze_last_blocks={config.unfreeze_last_blocks}"
+        f" lora={config.use_lora} freeze_logit_scale={config.freeze_logit_scale}",
+        flush=True,
+    )
+
     model = model.to(device)
     model.train()
     return model, preprocess, tokenizer, base_ckpt
@@ -278,7 +295,7 @@ def _build_trainable_pe(config: FinetuneConfig, device: str):
 def _freeze_except_last_blocks(model: torch.nn.Module, last_n: int) -> None:
     for param in model.parameters():
         param.requires_grad = False
-    # Always train text tower and logit scale lightly for retrieval.
+    # Train text tower; logit_scale handled separately via freeze_logit_scale.
     for name, param in model.named_parameters():
         if "text" in name.lower() or "logit_scale" in name:
             param.requires_grad = True

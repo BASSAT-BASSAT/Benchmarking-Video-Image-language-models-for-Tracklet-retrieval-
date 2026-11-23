@@ -3,7 +3,7 @@
 
 Examples::
 
-    # Run A — full fine-tune PE-B on RSTPReid package
+    # Run A — PE-B last-6 vision blocks + text (frozen logit_scale)
     python scripts/train_pe_finetune.py --run A \\
         --train finetune_data/rstpreid/train.jsonl \\
         --val finetune_data/rstpreid/val.jsonl \\
@@ -51,11 +51,12 @@ def main() -> None:
         config = FinetuneConfig(
             base_key="pe_core_b16",
             output_dir=str(args.output or ROOT / "results" / "finetune" / "pe_b16_run_a"),
-            epochs=args.epochs or 10,
+            epochs=args.epochs or 5,
             batch_size=args.batch_size or 64,
-            lr=args.lr or 5e-6,
-            unfreeze_last_blocks=None,
+            lr=args.lr or 2e-6,
+            unfreeze_last_blocks=6,
             use_lora=False,
+            freeze_logit_scale=True,
             image_size=224,
         )
     else:
@@ -64,9 +65,10 @@ def main() -> None:
             output_dir=str(args.output or ROOT / "results" / "finetune" / "pe_l14_run_b"),
             epochs=args.epochs or 8,
             batch_size=args.batch_size or 16,
-            lr=args.lr or 2e-6,
+            lr=args.lr or 1e-6,
             unfreeze_last_blocks=None if args.use_lora else 4,
             use_lora=args.use_lora,
+            freeze_logit_scale=True,
             grad_checkpoint=True,
             image_size=336,
         )
