@@ -48,6 +48,8 @@ class FinetuneConfig:
     # Kaggle /kaggle/working is tight: keep only last.pt + best.pt (no optimizer).
     save_every_epoch: bool = False
     save_optimizer: bool = False
+    # Stop when val_loss has not improved for this many epochs (None = run all epochs).
+    early_stop_patience: int | None = 2
 
 
 BASE_CHECKPOINTS = {
@@ -120,6 +122,7 @@ def train_pe(config: FinetuneConfig) -> Path:
     start_epoch = 0
     best_val = float("inf")
     best_path = output / "best.pt"
+    epochs_without_improve = 0
     if config.resume:
         meta = load_finetuned_pe_state(config.resume, model, strict=False)
         start_epoch = int(meta.get("epoch", 0)) + 1
@@ -198,6 +201,7 @@ def train_pe(config: FinetuneConfig) -> Path:
             )
         if val_loss <= best_val:
             best_val = val_loss
+            epochs_without_improve = 0
             save_finetune_checkpoint(
                 best_path,
                 model,
@@ -207,8 +211,26 @@ def train_pe(config: FinetuneConfig) -> Path:
                 metrics=metrics,
             )
             print(f"new best val_loss={val_loss:.4f} → {best_path}", flush=True)
+        else:
+            epochs_without_improve += 1
+            print(
+                f"no val improve ({epochs_without_improve}"
+                f"{'' if config.early_stop_patience is None else f'/{config.early_stop_patience}'})"
+                f" best={best_val:.4f}",
+                flush=True,
+            )
         (output / "history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
         if config.max_steps and global_step >= config.max_steps:
+            break
+        if (
+            config.early_stop_patience is not None
+            and epochs_without_improve >= config.early_stop_patience
+        ):
+            print(
+                f"early stop at epoch {epoch}: no val improve for "
+                f"{config.early_stop_patience} epoch(s); best={best_path}",
+                flush=True,
+            )
             break
 
     if not best_path.is_file():
