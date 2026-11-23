@@ -33,10 +33,20 @@ if str(ROOT) not in sys.path:
 from shawaf_vlm.data.rstpreid import download_rstpreid, load_rstpreid  # noqa: E402
 from shawaf_vlm.data.tvpreid import download_tvpreid  # noqa: E402
 from shawaf_vlm.data.hub_video import read_jsonl  # noqa: E402
-from shawaf_vlm.sampling import _read_uniform_rgb_frames  # noqa: E402
+from shawaf_vlm.sampling import (  # noqa: E402
+    _pad_frames,
+    _read_fps_rgb_frames,
+    _read_uniform_rgb_frames,
+    sliding_windows,
+)
 
 TARGET_HEIGHT = 384
 TVPREID_CONFIGS = ("prid", "ilids", "duke")
+# Match eval ``reid_8fps_n64`` + ``uniform8`` (window=8, stride=4).
+DEFAULT_SAMPLE_FPS = 8.0
+DEFAULT_MAX_FRAMES = 64
+DEFAULT_WINDOW = 8
+DEFAULT_STRIDE = 4
 
 
 def main() -> None:
@@ -50,8 +60,20 @@ def main() -> None:
     parser.add_argument("--hf", default=None, help="Hugging Face dataset id for CUHK / ICFG")
     parser.add_argument("--max-images", type=int, default=None, help="Cap for smoke tests")
     parser.add_argument("--height", type=int, default=TARGET_HEIGHT)
-    parser.add_argument("--frames-per-video", type=int, default=4, help="TVPReid: frames kept per train/val video")
+    parser.add_argument(
+        "--frames-per-video",
+        type=int,
+        default=None,
+        help="Deprecated alias: sets --window (uniform fallback size)",
+    )
+    parser.add_argument("--sample-fps", type=float, default=DEFAULT_SAMPLE_FPS, help="TVPReid dense decode FPS")
+    parser.add_argument("--max-frames", type=int, default=DEFAULT_MAX_FRAMES, help="TVPReid cap before windowing")
+    parser.add_argument("--window", type=int, default=DEFAULT_WINDOW, help="Sliding window size (eval uniform8)")
+    parser.add_argument("--stride", type=int, default=DEFAULT_STRIDE, help="Sliding window stride")
     args = parser.parse_args()
+
+    if args.frames_per_video is not None:
+        args.window = int(args.frames_per_video)
 
     dest = args.out / args.source
     images_dir = dest / "images"
@@ -61,7 +83,13 @@ def main() -> None:
         train_rows, val_rows = _package_rstpreid(images_dir, args.height, args.max_images)
     elif args.source == "tvpreid":
         train_rows, val_rows = _package_tvpreid(
-            images_dir, args.height, args.max_images, args.frames_per_video
+            images_dir,
+            args.height,
+            args.max_images,
+            sample_fps=args.sample_fps,
+            max_frames=args.max_frames,
+            window=args.window,
+            stride=args.stride,
         )
     elif args.source == "cuhk_pedes":
         hf_id = args.hf or "MaulikMadhavi/CUHK-PEDES-processed"
@@ -137,13 +165,27 @@ def _package_tvpreid(
     images_dir: Path,
     height: int,
     max_images: int | None,
-    frames_per_video: int,
+    *,
+    sample_fps: float = DEFAULT_SAMPLE_FPS,
+    max_frames: int = DEFAULT_MAX_FRAMES,
+    window: int = DEFAULT_WINDOW,
+    stride: int = DEFAULT_STRIDE,
 ):
-    """Download TVPReid train+val (not test); extract uniform frames as stills."""
+    """Download TVPReid train+val; dense 8fps decode + sliding windows → stills.
+
+    Matches eval ``reid_8fps_n64`` (sample_fps=8, max_frames=64) and ``uniform8``
+    windows (window=8, stride=4). PE is an image encoder, so each unique frame in
+    those windows becomes a still with the tracklet captions.
+    """
 
     train_rows: list[dict] = []
     val_rows: list[dict] = []
     count = 0
+    print(
+        f"TVPReid package: sample_fps={sample_fps:g} max_frames={max_frames} "
+        f"window={window} stride={stride}",
+        flush=True,
+    )
     for split in ("train", "val"):
         root = download_tvpreid(configs=TVPREID_CONFIGS, split=split)
         for config in TVPREID_CONFIGS:
@@ -164,11 +206,17 @@ def _package_tvpreid(
                 captions = [str(c).strip() for c in captions if str(c).strip()]
                 if not captions:
                     continue
-                frames = _read_uniform_rgb_frames(video_path, max(1, frames_per_video))
+                frames = _tvpreid_window_frames(
+                    video_path,
+                    sample_fps=sample_fps,
+                    max_frames=max_frames,
+                    window=window,
+                    stride=stride,
+                )
                 if not frames:
                     continue
                 for fi, frame in enumerate(frames):
-                    rel_name = f"{person_id}_f{fi:02d}.jpg"
+                    rel_name = f"{person_id}_f{fi:03d}.jpg"
                     _save_array(frame, images_dir / rel_name, height)
                     record = {
                         "image": f"images/{rel_name}",
@@ -184,6 +232,39 @@ def _package_tvpreid(
     if not train_rows:
         raise RuntimeError("No TVPReid train frames packaged")
     return train_rows, val_rows
+
+
+def _tvpreid_window_frames(
+    video_path: Path,
+    *,
+    sample_fps: float,
+    max_frames: int,
+    window: int,
+    stride: int,
+) -> list[np.ndarray]:
+    """Dense FPS sample, then keep unique frames covered by sliding windows."""
+
+    dense = _read_fps_rgb_frames(video_path, sample_fps=sample_fps, max_frames=max_frames)
+    if not dense:
+        dense = _read_uniform_rgb_frames(video_path, max(1, window))
+    if not dense:
+        return []
+    if len(dense) < window:
+        dense = _pad_frames(dense, window)
+
+    # sliding_windows expects Paths; use placeholder paths keyed by index.
+    placeholders = [Path(f"{i:05d}") for i in range(len(dense))]
+    windows = sliding_windows(placeholders, window=window, stride=stride)
+    keep: list[int] = []
+    seen: set[int] = set()
+    for win in windows:
+        for path in win:
+            idx = int(path.name)
+            if idx not in seen:
+                seen.add(idx)
+                keep.append(idx)
+    keep.sort()
+    return [dense[i] for i in keep]
 
 
 def _save_array(frame: np.ndarray, dest: Path, height: int) -> None:

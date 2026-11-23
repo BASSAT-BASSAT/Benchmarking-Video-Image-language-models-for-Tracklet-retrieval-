@@ -179,6 +179,35 @@ def test_train_pe_smoke_max_steps(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
             num_workers=0,
             log_every=1,
             warmup_steps=0,
+            use_lora=False,
+            unfreeze_last_blocks=None,
         )
     )
     assert Path(best).is_file()
+
+
+def test_lora_wraps_vision_attn_and_exports_merged_keys() -> None:
+    from shawaf_vlm.finetune.lora import LoRALinear, apply_lora, lora_export_state_dict
+
+    class Block(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.attn = torch.nn.Module()
+            self.attn.qkv = torch.nn.Linear(8, 24)
+            self.attn.proj = torch.nn.Linear(8, 8)
+
+    class Fake(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.visual = torch.nn.Sequential(Block(), Block())
+            self.transformer = torch.nn.Module()
+            self.transformer.resblocks = torch.nn.ModuleList([Block()])
+
+    model = Fake()
+    # named paths: visual.0.attn.qkv etc. — Sequential uses indices
+    wrapped = apply_lora(model, rank=4, on_text=True)
+    assert wrapped, "expected LoRA targets"
+    assert all(isinstance(model.get_submodule(n), LoRALinear) for n in wrapped)
+    exported = lora_export_state_dict(model)
+    assert any(k.endswith("attn.qkv.weight") or k.endswith("qkv.weight") for k in exported)
+    assert not any("lora_A" in k for k in exported)

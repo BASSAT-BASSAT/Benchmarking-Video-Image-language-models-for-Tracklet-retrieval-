@@ -47,15 +47,17 @@ def main() -> None:
     parser.add_argument("--use-lora", action="store_true", help="Run B alternative: LoRA instead of last blocks")
     args = parser.parse_args()
 
+    use_lora = True if args.run == "A" else bool(args.use_lora)
     if args.run == "A":
         config = FinetuneConfig(
             base_key="pe_core_b16",
             output_dir=str(args.output or ROOT / "results" / "finetune" / "pe_b16_run_a"),
             epochs=args.epochs or 5,
             batch_size=args.batch_size or 64,
-            lr=args.lr or 2e-6,
-            unfreeze_last_blocks=6,
-            use_lora=False,
+            lr=args.lr or (1e-4 if use_lora else 2e-6),
+            unfreeze_last_blocks=None if use_lora else 6,
+            use_lora=use_lora,
+            lora_on_text=True,
             freeze_logit_scale=True,
             image_size=224,
         )
@@ -65,9 +67,10 @@ def main() -> None:
             output_dir=str(args.output or ROOT / "results" / "finetune" / "pe_l14_run_b"),
             epochs=args.epochs or 8,
             batch_size=args.batch_size or 16,
-            lr=args.lr or 1e-6,
-            unfreeze_last_blocks=None if args.use_lora else 4,
-            use_lora=args.use_lora,
+            lr=args.lr or (5e-5 if use_lora else 1e-6),
+            unfreeze_last_blocks=None if use_lora else 4,
+            use_lora=use_lora,
+            lora_on_text=True,
             freeze_logit_scale=True,
             grad_checkpoint=True,
             image_size=336,

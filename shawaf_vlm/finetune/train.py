@@ -17,6 +17,7 @@ except ImportError:  # pragma: no cover
 
 from shawaf_vlm.finetune.checkpoint import load_finetuned_pe_state, save_finetune_checkpoint
 from shawaf_vlm.finetune.data import PersonCaptionDataset, collate_batch, load_jsonl, merge_sources
+from shawaf_vlm.finetune.lora import apply_lora, lora_export_state_dict
 from shawaf_vlm.finetune.losses import identity_infonce
 
 
@@ -38,10 +39,12 @@ class FinetuneConfig:
     device: str = "cuda"
     seed: int = 0
     resume: str | None = None
-    # Freeze early vision; train last N blocks + text. None = full FT (overfits fast on PEDES).
+    # Used only when use_lora=False. None = full FT (overfits fast on PEDES).
     unfreeze_last_blocks: int | None = 6
-    use_lora: bool = False
+    # LoRA on vision attention Linears (qkv/out_proj). Not QLoRA (no 4-bit).
+    use_lora: bool = True
     lora_rank: int = 8
+    lora_on_text: bool = True  # also wrap text-tower attention Linears
     grad_checkpoint: bool = False
     # Keep CLIP temperature fixed — letting it grow sharpens logits and accelerates overfit.
     freeze_logit_scale: bool = True
@@ -181,6 +184,11 @@ def train_pe(config: FinetuneConfig) -> Path:
         print(json.dumps(row), flush=True)
         metrics = {"train_loss": train_loss, "val_loss": val_loss}
         opt = optimizer if config.save_optimizer else None
+        export_sd = (
+            lora_export_state_dict(model)
+            if config.use_lora
+            else None
+        )
         last_path = output / "last.pt"
         save_finetune_checkpoint(
             last_path,
@@ -190,6 +198,8 @@ def train_pe(config: FinetuneConfig) -> Path:
             epoch=epoch,
             metrics=metrics,
             optimizer=opt,
+            state_dict=export_sd,
+            extra={"use_lora": config.use_lora, "lora_rank": config.lora_rank},
         )
         if config.save_every_epoch:
             save_finetune_checkpoint(
@@ -200,6 +210,7 @@ def train_pe(config: FinetuneConfig) -> Path:
                 epoch=epoch,
                 metrics=metrics,
                 optimizer=opt,
+                state_dict=export_sd,
             )
         if val_loss <= best_val:
             best_val = val_loss
@@ -211,6 +222,8 @@ def train_pe(config: FinetuneConfig) -> Path:
                 base_checkpoint=base_ckpt,
                 epoch=epoch,
                 metrics=metrics,
+                state_dict=export_sd,
+                extra={"use_lora": config.use_lora, "lora_rank": config.lora_rank},
             )
             print(f"new best val_loss={val_loss:.4f} → {best_path}", flush=True)
         else:
@@ -268,7 +281,20 @@ def _build_trainable_pe(config: FinetuneConfig, device: str):
             visual.grad_checkpointing = True
 
     if config.use_lora:
-        _apply_lora(model, rank=config.lora_rank)
+        wrapped = apply_lora(
+            model,
+            rank=config.lora_rank,
+            on_text=config.lora_on_text,
+        )
+        print(
+            f"LoRA on {len(wrapped)} attention Linear(s) "
+            f"(vision{' + text' if config.lora_on_text else ' only'}, rank={config.lora_rank})",
+            flush=True,
+        )
+        for name in wrapped[:8]:
+            print(f"  lora ← {name}", flush=True)
+        if len(wrapped) > 8:
+            print(f"  … +{len(wrapped) - 8} more", flush=True)
     elif config.unfreeze_last_blocks is not None:
         _freeze_except_last_blocks(model, config.unfreeze_last_blocks)
 
@@ -283,7 +309,8 @@ def _build_trainable_pe(config: FinetuneConfig, device: str):
         f"trainable params {trainable:,} / {total:,}"
         f" ({100.0 * trainable / max(total, 1):.1f}%)"
         f" unfreeze_last_blocks={config.unfreeze_last_blocks}"
-        f" lora={config.use_lora} freeze_logit_scale={config.freeze_logit_scale}",
+        f" lora={config.use_lora} lora_on_text={config.lora_on_text}"
+        f" freeze_logit_scale={config.freeze_logit_scale}",
         flush=True,
     )
 
@@ -327,23 +354,6 @@ def _freeze_except_last_blocks(model: torch.nn.Module, last_n: int) -> None:
     for name, param in model.named_parameters():
         if any(key in name for key in ("proj", "head", "ln_post", "attn_pool")):
             param.requires_grad = True
-
-
-def _apply_lora(model: torch.nn.Module, rank: int = 8) -> None:
-    try:
-        from peft import LoraConfig, get_peft_model
-    except ImportError as exc:
-        raise ImportError("Run B with use_lora=True needs peft. pip install peft") from exc
-
-    # open_clip models are not always PEFT-ready; target Linear modules in visual+text.
-    config = LoraConfig(
-        r=rank,
-        lora_alpha=rank * 2,
-        target_modules=["q_proj", "v_proj", "c_fc", "c_proj", "out_proj", "fc1", "fc2"],
-        bias="none",
-    )
-    # If get_peft_model fails (unsupported), caller should use unfreeze_last_blocks instead.
-    get_peft_model(model, config)
 
 
 @torch.no_grad()

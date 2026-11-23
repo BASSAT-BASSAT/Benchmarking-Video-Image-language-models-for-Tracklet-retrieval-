@@ -16,7 +16,7 @@ Notebook: [`notebooks/finetune_pe_kaggle.ipynb`](../notebooks/finetune_pe_kaggle
 | Source | Split used | Notes |
 |---|---|---|
 | RSTPReid | official train + val | Still images; test held out |
-| TVPReid | official train + val (PRID/iLIDS/Duke) | Videos → 4 uniform frames; test held out |
+| TVPReid | official train + val (PRID/iLIDS/Duke) | Videos → 8 fps dense (max 64) + sliding window 8/4 stills; test held out |
 | CUHK / ICFG | optional later | Need licence / Hub access |
 
 **Never train on:** Alexandria, GroOT, any `test` split.

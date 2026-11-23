@@ -33,12 +33,15 @@ def save_finetune_checkpoint(
     metrics: dict[str, float] | None = None,
     optimizer: torch.optim.Optimizer | None = None,
     extra: dict[str, Any] | None = None,
+    state_dict: dict[str, Any] | None = None,
 ) -> None:
     """Write a file that ``FinetunedPerceptionEncoder`` / registry loaders accept.
 
     Writes atomically via a ``.tmp`` sibling so a failed save does not leave a
     half-written ``.pt``. Optimizer state roughly doubles size — omit it on
     disk-constrained hosts (Kaggle ``/kaggle/working``).
+
+    Pass ``state_dict`` when the live module wraps LoRA (merged plain PE weights).
     """
 
     destination = Path(path)
@@ -50,12 +53,16 @@ def save_finetune_checkpoint(
             "delete old epoch_*.pt / unused datasets before saving again."
         )
 
+    weights = state_dict
+    if weights is None:
+        weights = {k: v.detach().cpu().contiguous() for k, v in model.state_dict().items()}
+
     payload: dict[str, Any] = {
         "version": CHECKPOINT_VERSION,
         "base_key": base_key,
         "base_checkpoint": base_checkpoint,
         "epoch": int(epoch),
-        "state_dict": {k: v.detach().cpu().contiguous() for k, v in model.state_dict().items()},
+        "state_dict": weights,
         "metrics": dict(metrics or {}),
     }
     if optimizer is not None:

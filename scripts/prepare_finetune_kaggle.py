@@ -3,6 +3,8 @@
 
 Needs Internet (gdown + Hugging Face). Never downloads Alexandria/GroOT/test splits.
 
+TVPReid packaging matches eval ``reid_8fps_n64`` + sliding ``window=8/stride=4``.
+
 Example::
 
     python scripts/prepare_finetune_kaggle.py --out /kaggle/working/finetune_data
@@ -24,7 +26,10 @@ def main() -> None:
     parser.add_argument("--skip-rstpreid", action="store_true")
     parser.add_argument("--skip-tvpreid", action="store_true")
     parser.add_argument("--max-images", type=int, default=None, help="Smoke cap per source")
-    parser.add_argument("--frames-per-video", type=int, default=4)
+    parser.add_argument("--sample-fps", type=float, default=8.0)
+    parser.add_argument("--max-frames", type=int, default=64)
+    parser.add_argument("--window", type=int, default=8)
+    parser.add_argument("--stride", type=int, default=4)
     parser.add_argument("--height", type=int, default=384)
     args = parser.parse_args()
 
@@ -49,11 +54,23 @@ def main() -> None:
         cmd = common + [
             "--source",
             "tvpreid",
-            "--frames-per-video",
-            str(args.frames_per_video),
+            "--sample-fps",
+            str(args.sample_fps),
+            "--max-frames",
+            str(args.max_frames),
+            "--window",
+            str(args.window),
+            "--stride",
+            str(args.stride),
         ]
         print("+", " ".join(cmd), flush=True)
         subprocess.check_call(cmd)
+        recipe = (
+            f"fps{args.sample_fps:g}_n{args.max_frames}_w{args.window}_s{args.stride}\n"
+        )
+        marker = args.out / "tvpreid" / ".frame_recipe"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(recipe, encoding="utf-8")
 
     print("Done. Train with:", flush=True)
     print(
